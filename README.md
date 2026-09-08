@@ -88,11 +88,4 @@ Odoo de manual.
 `build_dossier.py export` genera ademas **un solo HTML** con los diagramas dentro, para
 enviarlo por correo: se abre con doble clic, sin internet y sin instalar nada.
 
-## No es
-
-- No es una herramienta de desarrollo de modulos: para eso esta
-  [`odoo-curated`](https://github.com/drkpkg/odoo-curated).
-- No escribe en la instancia, ni instala modulos, ni ejecuta acciones.
-- No sustituye a la documentacion oficial de Odoo: la aterriza en una instancia concreta.
-
 MIT.
