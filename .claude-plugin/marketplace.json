@@ -1,0 +1,30 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "odoo-explorer",
+  "description": "Exploración de instancias Odoo en solo lectura para administradores y consultores: conexión guiada, descarga automática del código fuente de la versión detectada, y dossiers de proceso con diagramas interactivos (Archify) siempre con la misma estructura.",
+  "owner": {
+    "name": "drkpkg",
+    "url": "https://github.com/drkpkg"
+  },
+  "plugins": [
+    {
+      "name": "odoo-explorer",
+      "description": "Conecta en SOLO LECTURA a una instancia Odoo (XML-RPC), detecta versión y edición, descarga y cachea el código fuente de esa serie, y genera dossiers de proceso en HTML interactivo con diagramas Archify. No escribe nunca en la instancia.",
+      "author": {
+        "name": "drkpkg"
+      },
+      "category": "productivity",
+      "keywords": [
+        "odoo",
+        "erp",
+        "read-only",
+        "xml-rpc",
+        "documentation",
+        "diagrams",
+        "archify",
+        "audit"
+      ],
+      "source": "./plugins/odoo-explorer"
+    }
+  ]
+}

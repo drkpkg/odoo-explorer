@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "Ciclo de vida de la orden de fabricacion",
+    "viewBox": [
+      1040,
+      620
+    ],
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "camino-principal",
+        "label": "Camino principal",
+        "focus": [
+          "draft",
+          "confirmed",
+          "progress",
+          "to_close",
+          "done"
+        ],
+        "note": "Recorrido normal de una orden, de borrador a producto terminado en stock."
+      },
+      {
+        "id": "salida",
+        "label": "Salida anticipada",
+        "focus": [
+          "confirmed",
+          "progress",
+          "cancel"
+        ],
+        "note": "Cancelar sigue disponible mientras la orden no este hecha."
+      }
+    ]
+  },
+  "lanes": [
+    {
+      "id": "main",
+      "label": "Estados de mrp.production"
+    },
+    {
+      "id": "eventos",
+      "label": "Salida terminal"
+    }
+  ],
+  "states": [
+    {
+      "id": "draft",
+      "type": "start",
+      "label": "Borrador",
+      "sublabel": "draft",
+      "lane": "main",
+      "col": 0,
+      "step": "01",
+      "tag": "editable"
+    },
+    {
+      "id": "confirmed",
+      "type": "active",
+      "label": "Confirmada",
+      "sublabel": "confirmed",
+      "lane": "main",
+      "col": 1,
+      "step": "02",
+      "tag": "reserva"
+    },
+    {
+      "id": "progress",
+      "type": "active",
+      "label": "En proceso",
+      "sublabel": "progress",
+      "lane": "main",
+      "col": 2,
+      "step": "03",
+      "tag": "consumo"
+    },
+    {
+      "id": "to_close",
+      "type": "decision",
+      "label": "Por cerrar",
+      "sublabel": "to_close",
+      "lane": "main",
+      "col": 3,
+      "step": "04",
+      "tag": "control"
+    },
+    {
+      "id": "done",
+      "type": "success",
+      "label": "Hecho",
+      "sublabel": "done",
+      "lane": "main",
+      "col": 4,
+      "step": "05",
+      "tag": "stock"
+    },
+    {
+      "id": "cancel",
+      "type": "failure",
+      "label": "Cancelada",
+      "sublabel": "cancel",
+      "lane": "eventos",
+      "col": 0,
+      "tag": "terminal"
+    }
+  ],
+  "transitions": [
+    {
+      "id": "t-confirm",
+      "from": "draft",
+      "to": "confirmed",
+      "label": "action_confirm()",
+      "variant": "emphasis",
+      "route": "straight",
+      "labelDy": -28
+    },
+    {
+      "id": "t-start",
+      "from": "confirmed",
+      "to": "progress",
+      "label": "primer consumo",
+      "route": "straight",
+      "labelDy": -28
+    },
+    {
+      "id": "t-toclose",
+      "from": "progress",
+      "to": "to_close",
+      "label": "cantidad alcanzada",
+      "route": "straight",
+      "labelDy": -28
+    },
+    {
+      "id": "t-done",
+      "from": "to_close",
+      "to": "done",
+      "label": "button_mark_done()",
+      "variant": "emphasis",
+      "route": "straight",
+      "labelDy": -28
+    },
+    {
+      "id": "t-cancel",
+      "from": "progress",
+      "to": "cancel",
+      "label": "action_cancel()",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "route": "straight",
+      "labelDy": 34
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Lo que hace avanzar la orden",
+      "items": [
+        "Confirmar genera los movimientos de componentes y el del producto acabado",
+        "progress no lo pone ningun boton: lo calcula el consumo ya registrado"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Donde se atasca",
+      "items": [
+        "Sin componentes reservados la orden se queda en confirmed y no avanza",
+        "Cancelar deja de estar disponible en cuanto la orden pasa a done"
+      ]
+    }
+  ]
+}

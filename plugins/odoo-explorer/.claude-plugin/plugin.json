@@ -1,0 +1,18 @@
+{
+  "name": "odoo-explorer",
+  "version": "0.1.0",
+  "description": "Exploración en solo lectura de instancias Odoo: conexión guiada, código fuente de la versión detectada, y dossiers de proceso en HTML interactivo con diagramas Archify.",
+  "author": {
+    "name": "drkpkg",
+    "url": "https://github.com/drkpkg"
+  },
+  "homepage": "https://github.com/drkpkg/odoo-explorer",
+  "keywords": [
+    "odoo",
+    "erp",
+    "read-only",
+    "documentation",
+    "diagrams"
+  ],
+  "license": "MIT"
+}

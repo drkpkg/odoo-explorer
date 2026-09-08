@@ -1,0 +1,404 @@
+{
+  "schema": "odoo-explorer/dossier@1",
+  "process": {
+    "slug": "manufactura",
+    "title": "Proceso de manufactura",
+    "question": "Como fabrica esta instancia: desde la necesidad hasta el producto terminado en stock."
+  },
+  "instance": {
+    "slug": "demo",
+    "label": "Demo Industrias (ficticia)",
+    "url": "http://erp.demo.local",
+    "db": "demo_prod",
+    "serie": "18.0",
+    "edition": "community"
+  },
+  "resumen": {
+    "en_una_frase": "Esta instancia fabrica contra orden sin control de planta: la orden se confirma, se consume material y se cierra, pero no hay ordenes de trabajo, asi que no existe dato de tiempo ni de coste por operacion.",
+    "puntos": [
+      "De 1.842 ordenes historicas, 215 siguen abiertas y el 60% de esas esperan material",
+      "El cuello de botella esta en la reserva de componentes, no en la produccion",
+      "Las cantidades consumidas pueden diferir de la lista de materiales: esa diferencia es la merma real y hoy nadie la revisa",
+      "Hay un modulo a medida que interviene en el cierre de la orden y cuyo codigo no esta en el servidor"
+    ],
+    "implicaciones": [
+      "Si se quiere medir productividad por operario o por maquina, hay que activar ordenes de trabajo: hoy el dato no existe",
+      "Mejorar la planificacion de compras descongestionaria mas ordenes que cualquier cambio en planta",
+      "El modulo a medida es un riesgo para una futura migracion: nadie puede predecir que hace al cerrar"
+    ]
+  },
+  "generated_at": "2026-09-08T11:33",
+  "scope": {
+    "modules": [
+      "mrp",
+      "stock",
+      "product",
+      "account"
+    ],
+    "covers": [
+      "Desde que nace la necesidad de fabricar hasta que el producto terminado entra en stock",
+      "Ordenes de fabricacion (mrp.production) y sus movimientos de componentes",
+      "Como la lista de materiales determina que se consume"
+    ],
+    "excludes": [
+      "Ordenes de trabajo y centros de produccion (mrp_workorder): no esta instalado",
+      "Costes analiticos y valoracion: se tratan en el dossier de contabilidad"
+    ]
+  },
+  "actors": [
+    {
+      "role": "Planificador",
+      "does": "Crea la orden desde una necesidad o la genera el reaprovisionamiento",
+      "group": "Fabricacion / Usuario"
+    },
+    {
+      "role": "Operario de planta",
+      "does": "Registra el consumo real de componentes y la cantidad producida",
+      "group": "Fabricacion / Usuario"
+    },
+    {
+      "role": "Responsable de inventario",
+      "does": "Resuelve faltantes de componentes cuando la reserva no se completa",
+      "group": "Inventario / Usuario"
+    }
+  ],
+  "models": [
+    {
+      "model": "mrp.production",
+      "role": "Documento principal: la orden de fabricacion",
+      "module": "mrp",
+      "count": 1842,
+      "custom": false
+    },
+    {
+      "model": "mrp.bom",
+      "role": "Lista de materiales: que componentes y en que cantidad",
+      "module": "mrp",
+      "count": 214,
+      "custom": false
+    },
+    {
+      "model": "stock.move",
+      "role": "Movimiento de cada componente consumido y del producto acabado",
+      "module": "stock",
+      "count": 38914,
+      "custom": false
+    },
+    {
+      "model": "stock.move.line",
+      "role": "El detalle real: lote, ubicacion y cantidad efectivamente movida",
+      "module": "stock",
+      "count": 51203,
+      "custom": false
+    },
+    {
+      "model": "stock.quant",
+      "role": "El saldo de existencias que queda tras cada movimiento",
+      "module": "stock",
+      "count": 7788,
+      "custom": false
+    }
+  ],
+  "lifecycle": {
+    "model": "mrp.production",
+    "field": "state",
+    "states": [
+      {
+        "key": "draft",
+        "label": "Borrador",
+        "count": 37,
+        "means": "Editable. Todavia no reserva nada ni genera movimientos"
+      },
+      {
+        "key": "confirmed",
+        "label": "Confirmada",
+        "count": 128,
+        "means": "Los movimientos existen y se intenta reservar componentes"
+      },
+      {
+        "key": "progress",
+        "label": "En proceso",
+        "count": 41,
+        "means": "Ya hay consumo registrado; no lo pone un boton, se calcula"
+      },
+      {
+        "key": "to_close",
+        "label": "Por cerrar",
+        "count": 9,
+        "means": "Se alcanzo la cantidad prevista y falta validar el cierre"
+      },
+      {
+        "key": "done",
+        "label": "Hecho",
+        "count": 1602,
+        "means": "Producto acabado en stock y componentes descontados"
+      },
+      {
+        "key": "cancel",
+        "label": "Cancelada",
+        "count": 25,
+        "means": "Salida terminal: los movimientos quedan anulados"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "title": "Nace la necesidad de fabricar",
+      "actor": "Planificador",
+      "ui": "Fabricacion > Operaciones > Ordenes de fabricacion",
+      "model": "mrp.production",
+      "trigger": "Alta manual, o una regla de reaprovisionamiento que crea la orden sola",
+      "state_from": "(no existe)",
+      "state_to": "draft",
+      "what_happens": [
+        "Se elige producto y cantidad; Odoo busca la lista de materiales aplicable",
+        "Las lineas de componentes se calculan desde la BoM, no se escriben a mano"
+      ],
+      "creates": [
+        "Un mrp.production en draft, sin ningun movimiento de stock todavia"
+      ],
+      "evidence": [
+        {
+          "kind": "source",
+          "ref": "addons/mrp/models/mrp_production.py :: _compute_move_raw_ids"
+        }
+      ]
+    },
+    {
+      "title": "Se confirma la orden",
+      "actor": "Planificador",
+      "ui": "Boton Confirmar",
+      "model": "mrp.production",
+      "trigger": "Boton Confirmar -> action_confirm()",
+      "state_from": "draft",
+      "state_to": "confirmed",
+      "what_happens": [
+        "Se confirman los movimientos de componentes y el del producto acabado",
+        "Se intenta reservar segun la politica de la ruta; si no hay stock, la orden queda esperando",
+        "Aqui es donde el proceso deja de ser reversible sin dejar rastro"
+      ],
+      "creates": [
+        "stock.move por cada componente",
+        "stock.move del producto acabado hacia la ubicacion de destino"
+      ],
+      "evidence": [
+        {
+          "kind": "source",
+          "ref": "addons/mrp/models/mrp_production.py :: action_confirm"
+        },
+        {
+          "kind": "rpc",
+          "ref": "odoo_probe.py -i demo states mrp.production"
+        }
+      ]
+    },
+    {
+      "title": "Se registra el consumo real",
+      "actor": "Operario de planta",
+      "ui": "Pestana Componentes / Producir",
+      "model": "stock.move.line",
+      "trigger": "Edicion de las cantidades hechas en las lineas",
+      "state_from": "confirmed",
+      "state_to": "progress",
+      "what_happens": [
+        "El estado pasa a progress solo, en cuanto hay cantidad consumida",
+        "Lo consumido puede diferir de la BoM: esa diferencia es la merma real"
+      ],
+      "creates": [
+        "stock.move.line con lote y ubicacion concretos"
+      ],
+      "evidence": [
+        {
+          "kind": "source",
+          "ref": "addons/mrp/models/mrp_production.py :: _compute_state"
+        }
+      ]
+    },
+    {
+      "title": "Se cierra la orden",
+      "actor": "Operario de planta",
+      "ui": "Boton Marcar como hecho",
+      "model": "mrp.production",
+      "trigger": "Boton Marcar como hecho -> button_mark_done()",
+      "state_from": "to_close",
+      "state_to": "done",
+      "what_happens": [
+        "Se validan los movimientos: los componentes salen de stock y el acabado entra",
+        "Si sobran o faltan componentes frente a la BoM, Odoo pide confirmar la diferencia",
+        "Se calcula el coste del producto acabado a partir de lo realmente consumido"
+      ],
+      "creates": [
+        "stock.quant actualizados",
+        "Asiento de valoracion si la categoria del producto es de inventario permanente"
+      ],
+      "evidence": [
+        {
+          "kind": "source",
+          "ref": "addons/mrp/models/mrp_production.py :: button_mark_done"
+        }
+      ]
+    }
+  ],
+  "triggers": [
+    {
+      "ui": "Confirmar",
+      "method": "mrp.production.action_confirm()",
+      "effect": "Confirma movimientos y lanza la reserva",
+      "source": "addons/mrp/models/mrp_production.py"
+    },
+    {
+      "ui": "Comprobar disponibilidad",
+      "method": "stock.move._action_assign()",
+      "effect": "Reserva componentes contra los quants disponibles",
+      "source": "addons/stock/models/stock_move.py"
+    },
+    {
+      "ui": "Marcar como hecho",
+      "method": "mrp.production.button_mark_done()",
+      "effect": "Valida movimientos y cierra la orden",
+      "source": "addons/mrp/models/mrp_production.py"
+    },
+    {
+      "ui": "Cancelar",
+      "method": "mrp.production.action_cancel()",
+      "effect": "Anula los movimientos pendientes",
+      "source": "addons/mrp/models/mrp_production.py"
+    }
+  ],
+  "key_fields": [
+    {
+      "model": "mrp.production",
+      "field": "state",
+      "label": "Estado",
+      "type": "selection",
+      "why": "Es calculado, no se escribe a mano: explica por que la orden 'avanza sola'",
+      "custom": false
+    },
+    {
+      "model": "mrp.production",
+      "field": "bom_id",
+      "label": "Lista de materiales",
+      "type": "many2one",
+      "why": "Determina que componentes se consumen; cambiarla despues de confirmar no recalcula lo ya movido",
+      "custom": false
+    },
+    {
+      "model": "mrp.production",
+      "field": "qty_produced",
+      "label": "Cantidad producida",
+      "type": "float",
+      "why": "Dispara el paso a to_close cuando alcanza la cantidad prevista",
+      "custom": false
+    },
+    {
+      "model": "mrp.production",
+      "field": "picking_type_id",
+      "label": "Tipo de operacion",
+      "type": "many2one",
+      "why": "Decide ubicaciones de origen y destino, y por tanto que almacen se afecta",
+      "custom": false
+    }
+  ],
+  "config": [
+    {
+      "where": "Ajustes > Fabricacion",
+      "option": "Ordenes de trabajo",
+      "value": "Desactivado",
+      "effect": "No hay centros de produccion ni tiempos: el proceso salta de confirmada a producida"
+    },
+    {
+      "where": "Ajustes > Inventario",
+      "option": "Lotes y numeros de serie",
+      "value": "Activado",
+      "effect": "Cada consumo exige indicar lote, lo que bloquea el cierre si falta"
+    },
+    {
+      "where": "Ruta del producto",
+      "option": "Fabricar",
+      "value": "Activada en 214 productos",
+      "effect": "El reaprovisionamiento crea ordenes automaticamente sin intervencion del planificador"
+    }
+  ],
+  "this_instance": {
+    "volumes": [
+      {
+        "label": "Ordenes totales",
+        "value": "1.842"
+      },
+      {
+        "label": "Abiertas hoy",
+        "value": "215"
+      },
+      {
+        "label": "Listas de materiales",
+        "value": "214"
+      },
+      {
+        "label": "Antiguedad del historico",
+        "value": "3 anos"
+      }
+    ],
+    "findings": [
+      "El 60% de las ordenes abiertas estan en confirmed: el cuello de botella es la reserva de componentes, no la planta",
+      "Hay 25 ordenes canceladas frente a 1.602 hechas: la tasa de cancelacion es baja y no requiere atencion",
+      "Las ordenes de trabajo estan desactivadas, asi que no hay dato de tiempo por operacion"
+    ],
+    "deviations": [
+      "El campo x_lote_cliente en mrp.production es manual (anadido por Studio) y no lo escribe ningun modulo",
+      "El modulo mrp_custom_labels no esta en la fuente oficial: es a medida y toca el cierre de la orden"
+    ]
+  },
+  "diagrams": [
+    {
+      "slot": "map",
+      "type": "architecture",
+      "title": "Mapa de modelos",
+      "file": "diagrams/01-map.architecture.html",
+      "caption": "Que modelos participan y como se enlazan."
+    },
+    {
+      "slot": "lifecycle",
+      "type": "lifecycle",
+      "title": "Ciclo de vida del documento",
+      "file": "diagrams/02-lifecycle.lifecycle.html",
+      "caption": "Estados por los que pasa el documento principal y que los hace avanzar."
+    },
+    {
+      "slot": "flow",
+      "type": "workflow",
+      "title": "Flujo extremo a extremo",
+      "file": "diagrams/03-flow.workflow.html",
+      "caption": "El proceso completo por carriles, con sus ramas y excepciones."
+    },
+    {
+      "slot": "triggers",
+      "type": "sequence",
+      "title": "Que ejecuta cada accion",
+      "file": "diagrams/04-triggers.sequence.html",
+      "caption": "La cadena de llamadas reales del codigo fuente al pulsar cada boton."
+    },
+    {
+      "slot": "data",
+      "type": "dataflow",
+      "title": "Movimiento de datos",
+      "file": "diagrams/05-data.dataflow.html",
+      "caption": "Que registros se crean, se mueven y se contabilizan en cada paso."
+    }
+  ],
+  "evidence": {
+    "source_refs": [
+      "~/.cache/odoo-src/18.0/odoo/addons/mrp/models/mrp_production.py",
+      "~/.cache/odoo-src/18.0/odoo/addons/stock/models/stock_move.py",
+      "~/.cache/odoo-src/18.0/odoo/addons/mrp/models/mrp_bom.py"
+    ],
+    "rpc_calls": [
+      "odoo_probe.py -i demo model mrp.production",
+      "odoo_probe.py -i demo states mrp.production",
+      "odoo_probe.py -i demo graph mrp.production --depth 1",
+      "odoo_probe.py -i demo customizations --model mrp.production"
+    ]
+  },
+  "open_questions": [
+    "Que hace exactamente mrp_custom_labels en el cierre: hace falta ver su codigo, que no esta en el servidor"
+  ]
+}
