@@ -73,10 +73,17 @@ instances/<slug>/
 Un dossier tiene siempre estas once secciones, en este orden. Una seccion sin datos se
 muestra vacia y dice que falta; nunca desaparece.
 
-1. Alcance · 2. Quien interviene · 3. Mapa de modelos · 4. Ciclo de vida del documento ·
-5. El proceso paso a paso · 6. Que ejecuta cada accion · 7. Movimiento de datos ·
-8. Campos clave · 9. Configuracion que cambia el comportamiento · 10. Esta instancia en
-concreto · 11. Evidencia
+1. Alcance.
+2. Quien interviene
+3. Mapa de modelos
+4. Ciclo de vida del documento ·
+5. El proceso paso a paso
+6. Que ejecuta cada accion
+7. Movimiento de datos ·
+8. Campos clave
+9. Configuracion que cambia el comportamiento
+10. Esta instancia en concreto
+11. Evidencia
 
 Encabezandolas hay un **resumen** en lenguaje de negocio, y un interruptor
 **Resumen / Completa** que oculta o muestra el detalle tecnico. El mismo fichero le sirve
