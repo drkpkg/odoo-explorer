@@ -1,22 +1,22 @@
-"""Alta y verificacion de una instancia Odoo (solo lectura).
+"""Register and verify an Odoo instance (read-only).
 
-Flujo pensado para que la contrasena NUNCA pase por el chat:
+The flow is designed so the password NEVER goes through the chat:
 
   1) python3 odoo_connect.py probe --host erp.cliente.com --protocol https
-     -> version del servidor y, si el servidor lo permite, lista de bases.
+     -> server version and, when the server allows it, the list of databases.
 
   2) python3 odoo_connect.py save --instance cliente --host erp.cliente.com \
          --protocol https --db produccion --user consultor
-     -> escribe instances/cliente/instance.json (sin contrasena).
+     -> writes instances/cliente/instance.json (no password).
 
-  3) El USUARIO ejecuta, en su terminal:
+  3) The USER runs, in their own terminal:
      read -rsp 'Password Odoo: ' P && printf '%s' "$P" | \
          python3 odoo_connect.py set-password --instance cliente; unset P
-     -> escribe instances/cliente/.env con chmod 600.
+     -> writes instances/cliente/.env with chmod 600.
 
   4) python3 odoo_connect.py verify --instance cliente
-     -> autentica, detecta serie (18.0) y edicion (community/enterprise),
-        y actualiza instance.json.
+     -> authenticates, detects the series (18.0) and the edition
+        (community/enterprise), and updates instance.json.
 """
 import argparse
 import contextlib
@@ -51,7 +51,7 @@ def _now():
 
 
 def cmd_probe(a):
-    """Version del servidor y bases disponibles. No requiere credenciales."""
+    """Server version and available databases. Needs no credentials."""
     odoo = OdooRO(host=a.host, user="", password="", port=a.port,
                   protocol=a.protocol, timeout=a.timeout)
     version = odoo.version()
@@ -103,7 +103,9 @@ def cmd_save(a):
 
 
 def cmd_set_password(a):
-    """Lee la contrasena de STDIN. Nunca por argv (quedaria en ps y en el historial)."""
+    """Read the password from STDIN. Never from argv: it would leak into ps and
+    into the shell history.
+    """
     d = instance_dir(a.instance, a.project)
     if not (d / "instance.json").exists():
         raise SystemExit("No existe instances/%s. Ejecuta antes 'save'." % a.instance)
@@ -191,7 +193,7 @@ def _ask_choice(prompt, options, default=None):
 
 
 def cmd_wizard(a):
-    """Alta guiada de una instancia. Requiere terminal interactiva."""
+    """Guided registration of an instance. Requires an interactive terminal."""
     if not sys.stdin.isatty():
         raise SystemExit(
             "El asistente necesita una terminal. Ejecutalo tu mismo escribiendo\n"

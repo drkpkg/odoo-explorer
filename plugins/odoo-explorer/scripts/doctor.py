@@ -1,10 +1,11 @@
-"""Comprueba que todo lo que odoo-explorer necesita esta en su sitio.
+"""Check that everything odoo-explorer needs is in place.
 
-Pensado para que alguien sin perfil tecnico entienda que falta y que hacer:
+Written so that someone without a technical background understands what is
+missing and what to do about it:
 
-  python3 doctor.py                 # diagnostico legible
-  python3 doctor.py --json          # el mismo diagnostico para Claude
-  python3 doctor.py --instalar      # instala lo que se pueda instalar solo
+  python3 doctor.py                 # human-readable diagnosis
+  python3 doctor.py --json          # the same diagnosis, for Claude
+  python3 doctor.py --instalar      # install whatever can install itself
 """
 import argparse
 import json

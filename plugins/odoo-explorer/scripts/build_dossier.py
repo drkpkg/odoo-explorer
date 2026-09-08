@@ -1,15 +1,15 @@
-"""Renderiza el dossier de un proceso a HTML interactivo, siempre igual.
+"""Render a process dossier to interactive HTML, always the same shape.
 
-La estructura NO se improvisa en cada consulta: Claude rellena un JSON con un
-esquema fijo (dossier.json) y este script lo compila a index.html. Las mismas
-secciones, en el mismo orden, con los mismos huecos para los cinco diagramas
-Archify. Si una seccion no tiene datos, se renderiza vacia y se dice por que;
-nunca desaparece.
+The structure is NOT improvised on every request: Claude fills in a JSON with a
+closed schema (dossier.json) and this script compiles it into index.html. Same
+sections, same order, same slots for the five Archify diagrams. A section with no
+data renders empty and says why; it never disappears.
 
-  python3 build_dossier.py validate  instances/cliente/processes/manufactura/dossier.json
-  python3 build_dossier.py render    instances/cliente/processes/manufactura/dossier.json
-  python3 build_dossier.py index     --instance cliente
-  python3 build_dossier.py scaffold  --instance cliente --process manufactura \
+  python3 build_dossier.py validate instances/cliente/processes/manufactura/dossier.json
+  python3 build_dossier.py render   instances/cliente/processes/manufactura/dossier.json
+  python3 build_dossier.py export   instances/cliente/processes/manufactura/dossier.json
+  python3 build_dossier.py index    --instance cliente
+  python3 build_dossier.py scaffold --instance cliente --process manufactura \
       --title "Proceso de manufactura"
 """
 import argparse
@@ -409,7 +409,7 @@ def cmd_render(a):
 
 
 def cmd_export(a):
-    """Un unico fichero HTML con los diagramas dentro, para enviar o compartir."""
+    """One single HTML file with the diagrams inlined, ready to send or share."""
     path = pathlib.Path(a.dossier).resolve()
     data = json.loads(path.read_text(encoding="utf-8"))
     data.setdefault("generated_at",

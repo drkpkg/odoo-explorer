@@ -1,18 +1,18 @@
-"""Cliente XML-RPC de Odoo estrictamente de SOLO LECTURA.
+"""Strictly READ-ONLY Odoo XML-RPC client.
 
-Toda llamada pasa por un guardia que solo permite metodos de lectura. Cualquier
-intento de escritura (create/write/unlink/button_*/...) lanza ReadOnlyViolation
-ANTES de tocar la red.
+Every call goes through a guard that only allows read methods. Any write attempt
+(create/write/unlink/button_*/...) raises ReadOnlyViolation BEFORE it touches the
+network.
 
-No ampliar ALLOWED_METHODS. Es la unica garantia por codigo de que esta
-herramienta no puede modificar la instancia de un cliente.
+Do not extend ALLOWED_METHODS. It is the only code-level guarantee that this tool
+cannot modify a customer's instance.
 
-Uso como libreria:
+As a library:
     from odoo_ro import OdooRO, resolve_instance
     odoo = OdooRO.from_instance("mi-cliente")
     odoo.search_read("res.partner", [("customer_rank", ">", 0)], ["name"], limit=5)
 
-Uso como CLI (consultas sueltas, salida JSON):
+As a CLI (one-off queries, JSON output):
     python3 odoo_ro.py -i mi-cliente call res.partner search_count --args '[[]]'
     python3 odoo_ro.py -i mi-cliente search-read sale.order --domain '[["state","=","sale"]]' \
         --fields name,partner_id,amount_total --limit 10
@@ -50,7 +50,7 @@ class ReadOnlyViolation(RuntimeError):
 
 
 def assert_read_only(model, method):
-    """Lista blanca estricta. Todo lo que no este listado se bloquea."""
+    """Strict allowlist. Anything not listed is blocked."""
     if method in ALLOWED_METHODS:
         return
     raise ReadOnlyViolation(
@@ -63,7 +63,7 @@ def assert_read_only(model, method):
 
 # --- Localizacion del proyecto y de la instancia -----------------------------
 def project_root(explicit=None):
-    """Directorio de trabajo donde vive instances/. cwd por defecto."""
+    """Working directory that holds instances/. Defaults to the cwd."""
     if explicit:
         return pathlib.Path(explicit).expanduser().resolve()
     env = os.environ.get("ODOO_EXPLORER_HOME")
@@ -87,7 +87,7 @@ def list_instances(root=None):
 
 
 def read_env_file(path):
-    """Lee un .env simple. Devuelve dict; {} si no existe."""
+    """Read a simple .env file. Returns a dict, or {} when it does not exist."""
     path = pathlib.Path(path)
     if not path.exists():
         return {}
@@ -102,10 +102,10 @@ def read_env_file(path):
 
 
 def resolve_instance(slug, root=None):
-    """Devuelve (config, directorio). La password sale de .env o de ODOO_PASSWORD.
+    """Return (config, directory). The password comes from .env or ODOO_PASSWORD.
 
-    Solo se aceptan overrides de entorno con prefijo ODOO_: las variables
-    desnudas del shell (USER, HOST, PWD) pisarian la configuracion guardada.
+    Only ODOO_-prefixed environment overrides are honoured: bare shell variables
+    (USER, HOST, PWD) would otherwise clobber the stored configuration.
     """
     d = instance_dir(slug, root)
     conf_path = d / "instance.json"
@@ -158,7 +158,7 @@ class _TimeoutTransport(xmlrpc.client.Transport):
 
 # --- Cliente -----------------------------------------------------------------
 class OdooRO:
-    """Conexion de solo lectura a una base de datos Odoo via XML-RPC."""
+    """Read-only connection to an Odoo database over XML-RPC."""
 
     def __init__(self, host, user, password, db=None, port=None,
                  protocol="http", timeout=60, slug=None, directory=None):
@@ -208,7 +208,7 @@ class OdooRO:
         return self._version
 
     def server_serie(self):
-        """'18.0' a partir de server_serie o server_version ('18.0+e')."""
+        """'18.0', derived from server_serie or from server_version ('18.0+e')."""
         v = self.version()
         serie = v.get("server_serie")
         if serie:
@@ -225,7 +225,7 @@ class OdooRO:
         return any(str(part) == "e" for part in info)
 
     def list_databases(self):
-        """Puede estar deshabilitado (list_db = False). Devuelve None si lo esta."""
+        """May be disabled server-side (list_db = False). Returns None when it is."""
         try:
             return self._db.list()
         except Exception:

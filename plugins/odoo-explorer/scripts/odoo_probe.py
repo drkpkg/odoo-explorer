@@ -1,8 +1,8 @@
-"""Sondas de SOLO LECTURA sobre una instancia Odoo.
+"""READ-ONLY probes against an Odoo instance.
 
-Recogen lo que la instancia sabe de si misma y que el codigo fuente no puede
-decir: que modulos hay instalados, que campos y vistas se han anadido a medida,
-en que estados estan los registros de verdad y con que volumen.
+They collect what the instance knows about itself and the source code cannot
+tell you: which modules are installed, which fields and views were added on top,
+and what state the records are actually in, with what volume.
 
   python3 odoo_probe.py -i cliente overview
   python3 odoo_probe.py -i cliente modules --serie 18.0
@@ -36,7 +36,7 @@ def _out(data):
 
 
 def _safe(odoo, model, wanted):
-    """Intersecta los campos pedidos con los que el modelo realmente tiene."""
+    """Intersect the requested fields with the ones the model actually has."""
     available = set(odoo.fields_get(model, ["type"]).keys())
     return [f for f in wanted if f in available]
 
@@ -65,7 +65,7 @@ def cmd_overview(a):
 
 
 def cmd_modules(a):
-    """Clasifica los modulos instalados contra la fuente oficial de la serie."""
+    """Classify the installed modules against the official source of the series."""
     odoo = OdooRO.from_instance(a.instance, a.project)
     serie = a.serie or odoo.server_serie()
     serie, warn = odoo_source.normalize_serie(serie)
@@ -173,7 +173,7 @@ def cmd_states(a):
 
 
 def cmd_graph(a):
-    """Modelos vecinos de uno dado. Alimenta el diagrama de mapa de modelos."""
+    """Neighbouring models of a given one. Feeds the model-map diagram."""
     odoo = OdooRO.from_instance(a.instance, a.project)
     seen, edges, frontier = set(), [], [a.model]
     for _depth in range(max(1, a.depth)):

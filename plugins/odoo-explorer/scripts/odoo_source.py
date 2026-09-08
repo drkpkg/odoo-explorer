@@ -1,18 +1,18 @@
-"""Cache local del codigo fuente de Odoo por serie.
+"""Local cache of the Odoo source code, one tree per series.
 
-La instancia dice QUE hay configurado; el codigo fuente dice COMO funciona el
-proceso (maquina de estados, que hace cada boton, que registros crea). Sin la
-fuente, un dossier de proceso es adivinanza.
+The instance tells you WHAT is configured; the source code tells you HOW the
+process works (state machine, what each button does, which records it creates).
+Without the source, a process dossier is guesswork.
 
-  python3 odoo_source.py ensure 18.0          # descarga+descomprime si no esta
-  python3 odoo_source.py path 18.0            # ruta y directorios de addons
-  python3 odoo_source.py list                 # series ya cacheadas
+  python3 odoo_source.py ensure 18.0          # download and extract if missing
+  python3 odoo_source.py path 18.0            # root path and addons directories
+  python3 odoo_source.py list                 # series already cached
   python3 odoo_source.py find-model mrp.production --serie 18.0
   python3 odoo_source.py grep "def action_confirm" --serie 18.0 --modules mrp
   python3 odoo_source.py module mrp --serie 18.0
 
-Cache por defecto: ~/.cache/odoo-src/<serie>/   (override: ODOO_SRC_CACHE)
-Fuente: https://nightly.odoo.com/<serie>/nightly/src/odoo_<serie>.latest.zip
+Default cache: ~/.cache/odoo-src/<series>/   (override: ODOO_SRC_CACHE)
+Upstream: https://nightly.odoo.com/<series>/nightly/src/odoo_<series>.latest.zip
 """
 import argparse
 import ast
@@ -39,7 +39,7 @@ def cache_root():
 
 
 def normalize_serie(serie):
-    """'18.0+e' -> '18.0'. 'saas~18.1' -> '18.0' con aviso."""
+    """'18.0+e' -> '18.0'. 'saas~18.1' -> '18.0' plus a warning."""
     serie = str(serie).strip()
     warn = None
     raw = serie
@@ -67,7 +67,7 @@ def source_info(serie):
 
 
 def addons_paths(serie):
-    """Directorios donde buscar modulos, en orden de prioridad."""
+    """Directories to search for modules, in priority order."""
     root = serie_dir(serie)
     info = source_info(serie)
     if info and info.get("addons_paths"):
