@@ -125,9 +125,11 @@ def resolve_instance(slug, root=None):
             conf[key] = override
     if not conf["password"]:
         raise SystemExit(
-            "Falta la contrasena de %r. Guardala sin que pase por el chat:\n"
-            "  printf 'PASSWORD=%%s\\n' \"$(read -rsp 'Password: ' p && echo \"$p\")\" > %s "
-            "&& chmod 600 %s" % (slug, d / ".env", d / ".env")
+            "Falta la contrasena de %r. Guardala por STDIN, nunca en la linea de "
+            "comandos:\n"
+            "  printf '%%s' 'la-clave' | python3 odoo_connect.py set-password "
+            "--instance %s\n"
+            "Queda en %s con permisos 600." % (slug, slug, d / ".env")
         )
     return conf, d
 
