@@ -16,6 +16,7 @@ import argparse
 import datetime
 import html
 import json
+import re
 import pathlib
 import sys
 
@@ -49,15 +50,42 @@ def e(value):
     return html.escape("" if value is None else str(value), quote=True)
 
 
+def _as_list(value):
+    """Lo que no es una secuencia es UN elemento, no una secuencia que recorrer.
+
+    Un texto suelto donde tocaba una lista se renderizaba letra a letra: una
+    frase de 200 caracteres salia como 200 vinetas. `validate` lo denuncia, y
+    esto ademas evita que el HTML salga roto si alguien se salta la validacion.
+    """
+    if value is None or value == "":
+        return []
+    if isinstance(value, (str, bytes, dict)):
+        return [value]
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    return [value]
+
+
+def _cell(value):
+    """Una celda es un escalar. Una lista se une; un objeto se aplana."""
+    if isinstance(value, bool):
+        return "si" if value else "no"
+    if isinstance(value, (list, tuple)):
+        return ", ".join(_cell(v) for v in value)
+    if isinstance(value, dict):
+        return ", ".join("%s: %s" % (k, _cell(v)) for k, v in value.items())
+    return "" if value is None else str(value)
+
+
 def _list(items, empty="Sin datos recogidos."):
-    items = items or []
+    items = [i for i in _as_list(items) if i not in (None, "")]
     if not items:
         return '<p class="empty">%s</p>' % e(empty)
-    return "<ul>%s</ul>" % "".join("<li>%s</li>" % e(i) for i in items)
+    return "<ul>%s</ul>" % "".join("<li>%s</li>" % e(_cell(i)) for i in items)
 
 
 def _table(rows, columns, empty="Sin datos recogidos."):
-    rows = rows or []
+    rows = [r if isinstance(r, dict) else {columns[0][0]: r} for r in _as_list(rows)]
     if not rows:
         return '<p class="empty">%s</p>' % e(empty)
     head = "".join("<th>%s</th>" % e(label) for _key, label in columns)
@@ -65,12 +93,7 @@ def _table(rows, columns, empty="Sin datos recogidos."):
     for row in rows:
         cells = []
         for key, _label in columns:
-            val = row.get(key)
-            if isinstance(val, bool):
-                val = "si" if val else "no"
-            elif isinstance(val, (list, tuple)):
-                val = ", ".join(str(v) for v in val)
-            cells.append("<td>%s</td>" % e(val))
+            cells.append("<td>%s</td>" % e(_cell(row.get(key))))
         body.append("<tr>%s</tr>" % "".join(cells))
     return ('<div class="scroll"><table><thead><tr>%s</tr></thead>'
             "<tbody>%s</tbody></table></div>" % (head, "".join(body)))
@@ -239,7 +262,8 @@ def render(dossier, base_dir, embed=False):
             body.append("<p><b>Que ocurre por dentro</b></p>" + _list(s["what_happens"]))
         if s.get("creates"):
             body.append("<p><b>Que registros aparecen o cambian</b></p>" + _list(s["creates"]))
-        refs = [r.get("ref") if isinstance(r, dict) else r for r in (s.get("evidence") or [])]
+        refs = [r.get("ref") if isinstance(r, dict) else r
+                for r in _as_list(s.get("evidence"))]
         if refs:
             body.append('<p class="ev">%s</p>' % e(" &middot; ".join(str(r) for r in refs)))
         steps_html.append(
@@ -375,6 +399,156 @@ de solo lectura a %(url)s. Diagramas: Archify.</footer>
     }
 
 
+# --- Comprobacion de formato --------------------------------------------------
+# Columnas que lee cada tabla del render. Una clave que no este aqui no se ve en
+# el HTML: no es un error, pero conviene avisarlo.
+TABLES = {
+    "actors": ["role", "does", "group"],
+    "models": ["model", "role", "module", "count", "custom"],
+    "triggers": ["ui", "method", "effect", "source"],
+    "key_fields": ["model", "field", "label", "type", "why", "custom"],
+    "config": ["where", "option", "value", "effect"],
+    "lifecycle.states": ["key", "label", "count", "means"],
+    "this_instance.volumes": ["label", "value"],
+    "steps.evidence": ["kind", "ref"],
+}
+
+# Campos que son lista de frases. El fallo tipico es mandar una frase suelta.
+TEXT_LISTS = [
+    "resumen.puntos", "resumen.implicaciones",
+    "scope.covers", "scope.excludes", "scope.modules",
+    "this_instance.findings", "this_instance.deviations",
+    "evidence.source_refs", "evidence.rpc_calls",
+    "open_questions",
+    "steps[].what_happens", "steps[].creates",
+]
+
+TEXT_FIELDS = [
+    "resumen.en_una_frase", "lifecycle.model", "lifecycle.field",
+    "steps[].title", "steps[].actor", "steps[].ui", "steps[].model",
+    "steps[].trigger", "steps[].state_from", "steps[].state_to",
+]
+
+
+def _kind(value):
+    if isinstance(value, bool):
+        return "un si/no"
+    if isinstance(value, str):
+        return "un texto"
+    if isinstance(value, (int, float)):
+        return "un numero"
+    if isinstance(value, list):
+        return "una lista"
+    if isinstance(value, dict):
+        return "un objeto"
+    return "algo de tipo %s" % type(value).__name__
+
+
+def _dig(data, path):
+    """Devuelve [(ruta, valor)] resolviendo un '[]' intermedio como 'cada elemento'."""
+    head, _, tail = path.partition("[].")
+    if not tail:
+        node = data
+        for part in path.split("."):
+            if not isinstance(node, dict):
+                return []
+            node = node.get(part)
+        return [(path, node)]
+    rows = _dig(data, head)
+    out = []
+    for _p, seq in rows:
+        for i, item in enumerate(seq if isinstance(seq, list) else []):
+            if isinstance(item, dict):
+                out.append(("%s[%d].%s" % (head, i, tail), item.get(tail)))
+    return out
+
+
+def check_format(data):
+    """Comprueba que cada campo tiene la forma que el render espera.
+
+    Devuelve (problemas, avisos). Un problema rompe el HTML o pierde contenido;
+    un aviso es contenido que se escribio y no se va a ver.
+    """
+    problems, warnings = [], []
+
+    for path in TEXT_LISTS:
+        for where, value in _dig(data, path):
+            if value is None:
+                continue
+            if isinstance(value, str):
+                problems.append(
+                    "%s: es una lista de frases y llego un texto suelto. Envuelvelo en "
+                    "corchetes y parte las ideas en varias frases: [\"...\", \"...\"]" % where)
+            elif not isinstance(value, list):
+                problems.append("%s: se esperaba una lista de frases y llego %s"
+                                % (where, _kind(value)))
+            else:
+                for i, item in enumerate(value):
+                    if isinstance(item, (list, dict)):
+                        problems.append("%s[%d]: cada elemento es una frase, y llego %s"
+                                        % (where, i, _kind(item)))
+
+    for path in TEXT_FIELDS:
+        for where, value in _dig(data, path):
+            if value is not None and isinstance(value, (list, dict)):
+                problems.append("%s: se esperaba un texto y llego %s" % (where, _kind(value)))
+
+    for path, columns in TABLES.items():
+        base = path.replace(".", "[].") if path.startswith("steps.") else path
+        for where, value in _dig(data, base):
+            if value is None:
+                continue
+            if isinstance(value, dict):
+                problems.append(
+                    "%s: es una lista de filas y llego un objeto suelto. Envuelvelo en "
+                    "corchetes: [ {...} ]" % where)
+                continue
+            if not isinstance(value, list):
+                problems.append("%s: se esperaba una lista de filas y llego %s"
+                                % (where, _kind(value)))
+                continue
+            for i, row in enumerate(value):
+                if not isinstance(row, dict):
+                    problems.append("%s[%d]: cada fila es un objeto, y llego %s"
+                                    % (where, i, _kind(row)))
+                    continue
+                for key in row:
+                    if key not in columns:
+                        warnings.append(
+                            "%s[%d].%s: no hay columna para esta clave, no se vera en el "
+                            "dossier (columnas: %s)" % (where, i, key, ", ".join(columns)))
+
+    for i, step in enumerate(data.get("steps") or []):
+        if not isinstance(step, dict):
+            problems.append("steps[%d]: cada paso es un objeto, y llego %s" % (i, _kind(step)))
+            continue
+        if not step.get("title"):
+            problems.append("steps[%d].title: un paso sin titulo sale como '(sin titulo)'" % i)
+        if not _as_list(step.get("evidence")):
+            warnings.append("steps[%d]: sin evidencia. El contrato dice que un paso sin "
+                            "evidencia no se publica." % i)
+
+    return problems, warnings
+
+
+# Patologias que se ven en el HTML ya compilado, por si algo se cuela.
+def lint_html(markup):
+    avisos = []
+    letras = re.findall(r"<li>.</li>", markup)
+    if len(letras) > 5:
+        avisos.append("hay %d vinetas de un solo caracter: una lista se renderizo letra "
+                      "a letra" % len(letras))
+    vacias = markup.count("<li></li>")
+    if vacias:
+        avisos.append("hay %d vinetas vacias" % vacias)
+    if "<td></td><td></td><td></td>" in markup:
+        avisos.append("hay filas de tabla enteras vacias")
+    pendientes = markup.count("class=\"empty\"")
+    if pendientes > 8:
+        avisos.append("%d secciones sin datos: el dossier esta a medias" % pendientes)
+    return avisos
+
+
 def cmd_validate(a):
     path = pathlib.Path(a.dossier)
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -389,7 +563,9 @@ def cmd_validate(a):
     base = path.parent
     missing_files = [d.get("file") for d in (data.get("diagrams") or [])
                      if d.get("file") and not (base / d["file"]).exists()]
-    _out({"ok": not problems, "problems": problems,
+    formato, avisos = check_format(data)
+    problems += formato
+    _out({"ok": not problems, "problems": problems, "avisos": avisos,
           "diagram_slots_missing": missing_slots,
           "diagram_files_missing": missing_files,
           "steps": len(data.get("steps") or [])})
@@ -397,14 +573,29 @@ def cmd_validate(a):
         raise SystemExit(1)
 
 
+def _guard(data, force):
+    """Un dossier con el formato roto no se compila: se arregla el JSON."""
+    problems, avisos = check_format(data)
+    if problems and not force:
+        _out({"ok": False, "problems": problems, "avisos": avisos,
+              "que_hacer": "Corrige el dossier.json y vuelve a compilar. Los tipos estan "
+                           "en references/contrato-dossier.md. Con --force se compila "
+                           "igualmente, pero el HTML saldra pobre."})
+        raise SystemExit(1)
+    return avisos
+
+
 def cmd_render(a):
     path = pathlib.Path(a.dossier).resolve()
     data = json.loads(path.read_text(encoding="utf-8"))
+    avisos = _guard(data, a.force)
     data.setdefault("generated_at",
                     datetime.datetime.now().isoformat(timespec="minutes"))
+    markup = render(data, path.parent)
     out = path.parent / "index.html"
-    out.write_text(render(data, path.parent), encoding="utf-8")
+    out.write_text(markup, encoding="utf-8")
     _out({"written": str(out), "open": "file://%s" % out,
+          "avisos": avisos + lint_html(markup),
           "diagrams": [d.get("file") for d in (data.get("diagrams") or [])]})
 
 
@@ -412,18 +603,21 @@ def cmd_export(a):
     """One single HTML file with the diagrams inlined, ready to send or share."""
     path = pathlib.Path(a.dossier).resolve()
     data = json.loads(path.read_text(encoding="utf-8"))
+    avisos = _guard(data, a.force)
     data.setdefault("generated_at",
                     datetime.datetime.now().isoformat(timespec="minutes"))
     nombre = (data.get("process") or {}).get("slug") or path.parent.name
     inst = (data.get("instance") or {}).get("slug") or "instancia"
     out = pathlib.Path(a.output) if a.output else path.parent / (
         "%s-%s-completo.html" % (inst, nombre))
-    out.write_text(render(data, path.parent, embed=True), encoding="utf-8")
+    markup = render(data, path.parent, embed=True)
+    out.write_text(markup, encoding="utf-8")
     mb = out.stat().st_size / 1e6
     _out({
         "written": str(out),
         "open": "file://%s" % out,
         "size_mb": round(mb, 1),
+        "avisos": avisos + lint_html(markup),
         "self_contained": True,
         "aviso": ("Pesa %.1f MB: puede ser demasiado para un correo. Comprimelo o "
                   "compartelo por enlace." % mb) if mb > 8 else None,
@@ -537,11 +731,18 @@ def main(argv=None):
     p.add_argument("--project")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    c = sub.add_parser("validate"); c.add_argument("dossier"); c.set_defaults(func=cmd_validate)
-    c = sub.add_parser("render"); c.add_argument("dossier"); c.set_defaults(func=cmd_render)
+    c = sub.add_parser("validate", help="claves, diagramas y formato de los campos")
+    c.add_argument("dossier"); c.set_defaults(func=cmd_validate)
+
+    c = sub.add_parser("render", help="compila index.html (rechaza un formato roto)")
+    c.add_argument("dossier")
+    c.add_argument("--force", action="store_true",
+                   help="compilar aunque el formato este mal")
+    c.set_defaults(func=cmd_render)
 
     c = sub.add_parser("export", help="un solo HTML autocontenido, para compartir")
     c.add_argument("dossier"); c.add_argument("--output")
+    c.add_argument("--force", action="store_true")
     c.set_defaults(func=cmd_export)
 
     c = sub.add_parser("scaffold")

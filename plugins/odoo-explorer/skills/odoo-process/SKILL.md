@@ -142,6 +142,15 @@ python3 "$ODOO_EX/scripts/build_dossier.py" render   instances/acme/processes/ma
 python3 "$ODOO_EX/scripts/build_dossier.py" index --instance acme
 ```
 
+`validate` comprueba tambien **la forma de cada campo**, y `render` se niega a compilar si
+algo esta mal: te da la ruta exacta (`steps[4].what_happens: es una lista de frases y
+llego un texto suelto`). Arregla el JSON y repite; no uses `--force` para salir del paso,
+porque el HTML sale roto o con columnas en blanco. Los tipos exactos —que campos son
+listas de frases y que claves lee cada tabla— estan en `references/contrato-dossier.md`.
+
+Mira tambien los `avisos` que devuelven `validate` y `render`: son contenido que
+escribiste y que no se va a ver. No bloquean, pero casi siempre son un error de tecleo.
+
 Da al usuario la ruta `file://` del dossier y la del indice de la instancia.
 
 El dossier trae un interruptor **Resumen / Completa**. En Resumen se ocultan la traza

@@ -7,6 +7,40 @@ secciones**: la estructura fija es lo que permite comparar dos procesos o dos cl
 Una seccion sin datos se renderiza vacia y dice que falta. Eso es correcto y preferible a
 rellenarla con relleno generico.
 
+## El formato importa tanto como el contenido
+
+El render no adivina: cada campo tiene una forma. **Un texto suelto donde va una lista de
+frases se renderizaba letra a letra** —una frase de 200 caracteres salia como 200
+vinetas—, y una fila con claves que no existen sale como columnas en blanco. Por eso
+`build_dossier.py render` **se niega a compilar** un dossier con el formato mal, y
+`validate` te dice la ruta exacta del campo.
+
+**Listas de frases** (`["...", "..."]`, nunca una frase suelta):
+`resumen.puntos`, `resumen.implicaciones`, `scope.covers`, `scope.excludes`,
+`scope.modules`, `steps[].what_happens`, `steps[].creates`, `this_instance.findings`,
+`this_instance.deviations`, `evidence.source_refs`, `evidence.rpc_calls`,
+`open_questions`.
+
+**Listas de filas**, con estas claves exactas y nada mas (lo que no este en la lista no se
+ve en el HTML):
+
+| Campo | Claves de cada fila |
+|---|---|
+| `actors` | `role`, `does`, `group` |
+| `models` | `model`, `role`, `module`, `count`, `custom` |
+| `lifecycle.states` | `key`, `label`, `count`, `means` |
+| `triggers` | `ui`, `method`, `effect`, `source` |
+| `key_fields` | `model`, `field`, `label`, `type`, `why`, `custom` |
+| `config` | `where`, `option`, `value`, `effect` |
+| `this_instance.volumes` | `label`, `value` |
+| `steps[].evidence` | `kind`, `ref` |
+
+Ojo con `triggers`: es `ui` (no `button`) y `source` (no `file`). Y `steps[].evidence` es
+una **lista** de objetos, aunque solo haya uno: `[{"kind": "source", "ref": "..."}]`.
+
+El resto de campos son texto plano. Nada de markdown dentro de los valores: el render
+escapa el HTML, asi que `**negrita**` sale literal.
+
 ## Clave por clave
 
 `process` — `slug`, `title`, `question`. La `question` es la pregunta del usuario
@@ -73,6 +107,20 @@ que otra persona repita el analisis.
 `open_questions` — lo que no pudiste comprobar. Codigo a medida que no esta en el
 servidor, comportamiento que dependeria de ejecutar algo (y no se ejecuta: solo lectura).
 Es una seccion de calidad, no un fracaso.
+
+## Antes de entregar
+
+```bash
+python3 "$ODOO_EX/scripts/build_dossier.py" validate <ruta>/dossier.json
+```
+
+`problems` hay que arreglarlos: `render` no compila hasta que esten a cero. `avisos` son
+cosas que escribiste y no se van a ver (una clave que ninguna columna lee, un paso sin
+evidencia): repasalos, casi siempre son un error de tecleo.
+
+Al compilar, `render` devuelve ademas sus propios `avisos` mirando el HTML ya generado
+(vinetas de un solo caracter, filas vacias, demasiadas secciones sin datos). Si sale
+alguno, el dossier no esta listo para entregar.
 
 ## Al actualizar un dossier existente
 
