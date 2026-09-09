@@ -1,6 +1,6 @@
 {
   "name": "odoo-explorer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Exploración en solo lectura de instancias Odoo: conexión guiada, código fuente de la versión detectada, y dossiers de proceso en HTML interactivo con diagramas Archify.",
   "author": {
     "name": "drkpkg",

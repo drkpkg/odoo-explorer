@@ -1,22 +1,30 @@
 """Register and verify an Odoo instance (read-only).
 
-The flow is designed so the password NEVER goes through the chat:
+The short path (one command, everything else is discovered or asked):
 
-  1) python3 odoo_connect.py probe --host erp.cliente.com --protocol https
-     -> server version and, when the server allows it, the list of databases.
+    python3 odoo_connect.py setup --url https://erp.cliente.com
+    -> asks database, user and password (hidden), verifies the access, detects
+       the series and the edition, and downloads the source of that series.
 
-  2) python3 odoo_connect.py save --instance cliente --host erp.cliente.com \
-         --protocol https --db produccion --user consultor
-     -> writes instances/cliente/instance.json (no password).
+Claude can drive the same command without a terminal, piping the password so it
+never reaches argv (where ps and the shell history would pick it up):
 
-  3) The USER runs, in their own terminal:
-     read -rsp 'Password Odoo: ' P && printf '%s' "$P" | \
-         python3 odoo_connect.py set-password --instance cliente; unset P
-     -> writes instances/cliente/.env with chmod 600.
+    printf '%s' 'la-clave' | python3 odoo_connect.py setup \
+        --url https://erp.cliente.com --db produccion --user consultor
 
-  4) python3 odoo_connect.py verify --instance cliente
-     -> authenticates, detects the series (18.0) and the edition
-        (community/enterprise), and updates instance.json.
+Or, when the person prefers to type it hidden instead of dictating it:
+
+    read -rsp 'Password Odoo: ' P && printf '%s' "$P" | \
+        python3 odoo_connect.py setup --url https://erp.cliente.com \
+            --db produccion --user consultor; unset P
+
+The long path, step by step, when something needs to be done by hand:
+
+  1) probe --url erp.cliente.com   -> version, edition and, when the server allows
+                                      it, the list of databases. No credentials.
+  2) save --instance cliente ...   -> writes instances/cliente/instance.json.
+  3) set-password --instance cliente (password through STDIN, never argv).
+  4) verify --instance cliente     -> authenticates and stores series and edition.
 """
 import argparse
 import contextlib
@@ -51,13 +59,28 @@ def _now():
 
 
 def cmd_probe(a):
-    """Server version and available databases. Needs no credentials."""
+    """Server version and available databases. Needs no credentials.
+
+    With --url the protocol and the port are guessed and tried in order; with
+    --host they are taken as given.
+    """
+    if not a.url and not a.host:
+        raise SystemExit("Indica --url erp.cliente.com (o --host con --protocol y --port).")
+    if a.url:
+        info = discover(a.url, timeout=a.timeout)
+        if not info["ok"]:
+            _out(info)
+            raise SystemExit(1)
+        return _out(info)
     odoo = OdooRO(host=a.host, user="", password="", port=a.port,
                   protocol=a.protocol, timeout=a.timeout)
     version = odoo.version()
     dbs = odoo.list_databases()
     _out({
         "url": odoo.url,
+        "host": odoo.host,
+        "port": odoo.port,
+        "protocol": odoo.protocol,
         "server_version": version.get("server_version"),
         "serie": odoo.server_serie(),
         "edition": "enterprise" if odoo.is_enterprise() else "community",
@@ -168,7 +191,87 @@ def cmd_list(a):
 
 
 
-# --- Asistente interactivo (lo ejecuta el usuario, no Claude) ----------------
+# --- Deteccion de la direccion del servidor ----------------------------------
+def url_candidates(raw):
+    """Turn whatever the user typed into an ordered list of (protocol, host, port).
+
+    Accepts 'erp.acme.com', 'https://erp.acme.com', '1.2.3.4:8069', 'http://x/web'.
+    When the scheme or the port are missing we do not ask: we return the plausible
+    combinations so the caller can try them until one answers.
+    """
+    raw = (raw or "").strip()
+    protocol = ""
+    if "://" in raw:
+        protocol, _, raw = raw.partition("://")
+        protocol = protocol.lower().strip()
+    raw = raw.strip("/").split("/")[0]
+    host, _, port = raw.partition(":")
+    host, port = host.strip().lower(), port.strip()
+    if not host:
+        raise SystemExit("No entiendo la direccion %r. Ejemplo: erp.cliente.com" % raw)
+    if protocol not in ("", "http", "https"):
+        raise SystemExit("Protocolo no soportado: %r (solo http o https)." % protocol)
+    if protocol and port:
+        return [(protocol, host, port)]
+    if protocol:
+        first = "443" if protocol == "https" else "80"
+        return [(protocol, host, first), (protocol, host, "8069")]
+    if port:
+        return [("https" if port == "443" else "http", host, port)]
+    if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", host):
+        # Una IP suelta casi siempre es un Odoo sin proxy delante.
+        return [("http", host, "8069"), ("https", host, "443"), ("http", host, "80")]
+    return [("https", host, "443"), ("http", host, "8069"), ("http", host, "80")]
+
+
+def discover(raw_url, timeout=20):
+    """Probe every candidate for `raw_url` and describe the first one that answers.
+
+    Needs no credentials: it only calls /xmlrpc/2/common.version() and, when the
+    server allows it, db.list().
+    """
+    tried = []
+    candidates = url_candidates(raw_url)
+    # Con varios candidatos no se puede esperar el timeout completo en cada uno:
+    # un puerto cerrado se cuelga hasta agotarlo.
+    per_try = timeout if len(candidates) == 1 else min(timeout, 12)
+    for protocol, host, port in candidates:
+        odoo = OdooRO(host=host, user="", password="", port=port,
+                      protocol=protocol, timeout=per_try)
+        try:
+            version = odoo.version()
+        except Exception as exc:  # noqa: BLE001
+            tried.append({"url": odoo.url, "error": str(exc)[:200]})
+            continue
+        dbs = odoo.list_databases()
+        return {
+            "ok": True,
+            "url": odoo.url,
+            "host": host,
+            "port": port,
+            "protocol": protocol,
+            "server_version": version.get("server_version"),
+            "serie": odoo.server_serie(),
+            "edition": "enterprise" if odoo.is_enterprise() else "community",
+            "databases": dbs,
+            "databases_listing": "disponible" if dbs is not None else
+                                 "deshabilitada en el servidor (list_db=False): "
+                                 "hay que saber el nombre exacto",
+            "tried": tried,
+        }
+    return {
+        "ok": False,
+        "tried": tried,
+        "error": "Ninguna direccion respondio. Revisa el dominio y el puerto, y si "
+                 "hace falta VPN para llegar al servidor.",
+    }
+
+
+def _slugify(text, fallback="odoo"):
+    return re.sub(r"[^a-z0-9-]+", "-", str(text).lower()).strip("-")[:24] or fallback
+
+
+# --- Preguntas sencillas (solo cuando hay terminal) --------------------------
 def _ask(prompt, default=None, required=True):
     suffix = " [%s]" % default if default else ""
     while True:
@@ -192,86 +295,128 @@ def _ask_choice(prompt, options, default=None):
         print("  Elige un numero de la lista, o escribe el nombre.")
 
 
-def cmd_wizard(a):
-    """Guided registration of an instance. Requires an interactive terminal."""
-    if not sys.stdin.isatty():
-        raise SystemExit(
-            "El asistente necesita una terminal. Ejecutalo tu mismo escribiendo\n"
-            "  ! python3 %s wizard\n"
-            "en el prompt de Claude Code, o directamente en tu terminal." % __file__)
+def _ask_yes(prompt, default="si"):
+    return _ask(prompt, default=default).strip().lower().startswith(("s", "y"))
 
-    print("\n  Alta de una instancia Odoo (solo lectura)")
-    print("  " + "-" * 44)
-    print("  Nada de lo que hagamos aqui modifica la instancia.\n")
 
-    host = _ask("  Dominio o IP del servidor (sin http://)")
-    host = host.replace("https://", "").replace("http://", "").strip("/")
-    if ":" in host:
-        host, _, guess_port = host.partition(":")
-    else:
-        guess_port = ""
-    protocol = _ask("  Protocolo (http/https)",
-                    default="https" if not guess_port else "http")
-    port = _ask("  Puerto", default=guess_port or ("443" if protocol == "https" else "8069"))
+def _read_password(tty, prompt="  Contrasena (no se muestra al teclear): "):
+    """STDIN when it is piped, ODOO_PASSWORD otherwise, and only then the prompt."""
+    if not tty:
+        password = sys.stdin.read().rstrip("\r\n")
+        if password:
+            return password
+    env = os.environ.get("ODOO_PASSWORD")
+    if env:
+        return env
+    if tty:
+        return getpass.getpass(prompt)
+    return ""
 
-    print("\n  Probando la conexion con el servidor...")
-    probe = OdooRO(host=host, user="", password="", port=port,
-                   protocol=protocol, timeout=30)
-    try:
-        version = probe.version()
-    except Exception as exc:  # noqa: BLE001
-        raise SystemExit(
-            "\n  No se pudo hablar con %s.\n  Detalle: %s\n\n"
-            "  Revisa el dominio, el puerto y si hace falta VPN." % (probe.url, exc))
-    serie = probe.server_serie()
-    edition = "Enterprise" if probe.is_enterprise() else "Community"
-    print("  Conectado. Odoo %s (%s)\n" % (version.get("server_version"), edition))
 
-    dbs = probe.list_databases()
-    if dbs:
-        print("  Bases de datos que expone el servidor:")
-        db = _ask_choice("  Cual quieres consultar", dbs, default="1")
-    else:
-        print("  El servidor no publica la lista de bases (es lo normal en produccion).")
-        db = _ask("  Nombre exacto de la base de datos")
+def cmd_setup(a):
+    """Register an instance end to end: address, database, user, password, source.
 
-    user = _ask("\n  Usuario de Odoo con el que conectarte")
-    password = getpass.getpass("  Contrasena (no se muestra al teclear): ")
+    Whatever can be discovered is discovered (protocol, port, version, edition and,
+    when the server publishes them, the databases). Whatever cannot is asked with a
+    plain prompt. Claude can also drive it without a terminal by passing --url,
+    --db and --user and piping the password through STDIN.
+    """
+    tty = sys.stdin.isatty()
+    steps = []
+
+    def say(msg=""):
+        if not a.json:
+            print(msg)
+
+    say("\n  Alta de una instancia Odoo (solo lectura)")
+    say("  " + "-" * 44)
+    say("  Nada de lo que hagamos aqui modifica la instancia.\n")
+
+    raw_url = a.url
+    if not raw_url:
+        if not tty:
+            raise SystemExit("Falta --url (por ejemplo: --url https://erp.cliente.com).")
+        raw_url = _ask("  Direccion del servidor (dominio, ip o url completa)")
+
+    say("  Buscando el servidor en %s ..." % raw_url)
+    info = discover(raw_url, timeout=a.timeout)
+    if not info["ok"]:
+        detail = "\n".join("    %s -> %s" % (t["url"], t["error"]) for t in info["tried"])
+        raise SystemExit("\n  %s\n%s" % (info["error"], detail))
+    steps.append({"paso": "servidor", "url": info["url"],
+                  "server_version": info["server_version"], "edition": info["edition"]})
+    say("  Encontrado en %s: Odoo %s (%s)\n"
+        % (info["url"], info["server_version"], info["edition"]))
+
+    dbs = info["databases"]
+    db = a.db
+    if not db:
+        if dbs and len(dbs) == 1:
+            db = dbs[0]
+            say("  El servidor solo publica una base: %s\n" % db)
+        elif dbs:
+            if not tty:
+                raise SystemExit(
+                    "Falta --db. El servidor publica estas bases: %s" % ", ".join(dbs))
+            say("  Bases de datos que publica el servidor:")
+            db = _ask_choice("  Cual quieres consultar", dbs, default="1")
+        else:
+            if not tty:
+                raise SystemExit(
+                    "Falta --db. El servidor no publica la lista de bases "
+                    "(list_db=False): hay que saber el nombre exacto.")
+            say("  El servidor no publica la lista de bases (normal en produccion).")
+            db = _ask("  Nombre exacto de la base de datos")
+    elif dbs and db not in dbs:
+        say("  Aviso: %r no esta entre las bases que publica el servidor (%s)."
+            % (db, ", ".join(dbs)))
+
+    user = a.user or (_ask("\n  Usuario de Odoo con el que conectarte") if tty else "")
+    if not user:
+        raise SystemExit("Falta --user (el login del usuario de Odoo).")
+
+    password = _read_password(tty)
     if not password:
-        raise SystemExit("  Sin contrasena no se puede continuar.")
+        raise SystemExit(
+            "Falta la contrasena. Pasala por STDIN (nunca por argv):\n"
+            "  printf '%%s' 'la-clave' | python3 %s setup --url %s --db %s --user %s\n"
+            "O que la teclee la persona, oculta:\n"
+            "  read -rsp 'Password Odoo: ' P && printf '%%s' \"$P\" | "
+            "python3 %s setup --url %s --db %s --user %s; unset P"
+            % (__file__, raw_url, db, user, __file__, raw_url, db, user))
 
-    default_slug = re.sub(r"[^a-z0-9-]+", "-", host.lower()).strip("-")[:24]
-    slug = _ask("\n  Nombre corto para esta instancia", default=default_slug)
-    label = _ask("  Nombre legible (para los informes)", default=host, required=False)
+    slug = a.instance or _slugify(info["host"])
+    label = a.label or info["host"]
 
     class _Args:
         pass
     args = _Args()
     args.project = a.project
     args.instance = slug
-    args.host = host
-    args.port = port
-    args.protocol = protocol
+    args.host = info["host"]
+    args.port = info["port"]
+    args.protocol = info["protocol"]
     args.db = db
     args.user = user
     args.label = label
-    args.timeout = 60
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
+    args.timeout = max(a.timeout, 60)
+    with contextlib.redirect_stdout(io.StringIO()):
         cmd_save(args)
 
     d = instance_dir(slug, a.project)
     env_path = d / ".env"
     env_path.write_text("PASSWORD=%s\n" % password, encoding="utf-8")
-    env_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    env_path.chmod(stat.S_IRUSR | stat.S_IWUSR)  # 0600
+    steps.append({"paso": "guardado", "instancia": slug,
+                  "config": str(d / "instance.json"), "password": str(env_path)})
 
-    print("\n  Verificando el acceso...")
+    say("\n  Verificando el acceso...")
     try:
         odoo = OdooRO.from_instance(slug, a.project, connect=True)
     except SystemExit as exc:
         raise SystemExit(
-            "\n  Los datos se guardaron, pero el acceso fallo:\n  %s\n\n"
-            "  Corrige y repite el asistente: se sobrescribe sin problema." % exc)
+            "\n  Los datos se guardaron en %s, pero el acceso fallo:\n  %s\n\n"
+            "  Corrige lo que falle y repite: se sobrescribe sin problema." % (d, exc))
     summary = odoo.summary()
     conf_path = d / "instance.json"
     conf = json.loads(conf_path.read_text(encoding="utf-8"))
@@ -279,37 +424,72 @@ def cmd_wizard(a):
                  "server_version": summary["server_version"], "uid": summary["uid"],
                  "verified_at": _now(), "updated_at": _now()})
     conf_path.write_text(json.dumps(conf, indent=2, ensure_ascii=False), encoding="utf-8")
-    print("  Acceso correcto como uid %s.\n" % summary["uid"])
+    steps.append({"paso": "verificado", "uid": summary["uid"], "serie": summary["serie"],
+                  "edition": summary["edition"]})
+    say("  Acceso correcto como uid %s.\n" % summary["uid"])
 
     serie = summary["serie"]
-    cached = odoo_source.source_info(odoo_source.normalize_serie(serie)[0])
+    base_serie = odoo_source.normalize_serie(serie)[0]
+    cached = odoo_source.source_info(base_serie)
     if cached:
-        print("  El codigo fuente de Odoo %s ya esta descargado." % serie)
+        say("  El codigo fuente de Odoo %s ya estaba descargado." % base_serie)
+        steps.append({"paso": "fuente", "estado": "ya-estaba", "serie": base_serie})
+    elif a.no_source:
+        steps.append({"paso": "fuente", "estado": "omitida", "serie": base_serie})
     else:
-        print("  Falta el codigo fuente de Odoo %s. Son unos 370 MB y se descarga" % serie)
-        print("  una sola vez: sin el, no se puede explicar como funcionan los procesos.")
-        if _ask("  Descargar ahora (si/no)", default="si").lower().startswith("s"):
-            print()
+        say("  Falta el codigo fuente de Odoo %s. Son unos 370 MB y se descarga"
+            % base_serie)
+        say("  una sola vez: sin el no se puede explicar como funcionan los procesos.")
+        if tty and not _ask_yes("  Descargar ahora (si/no)"):
+            say("  Puedes descargarla despues pidiendoselo a Claude.")
+            steps.append({"paso": "fuente", "estado": "rechazada", "serie": base_serie})
+        else:
             args2 = _Args()
             args2.serie = serie
-            args2.force = False
-            args2.keep_zip = False
-            args2.github = False
-            buf2 = io.StringIO()
-            with contextlib.redirect_stdout(buf2):
-                odoo_source.cmd_ensure(args2)
-            print("\n  Fuente lista.")
-        else:
-            print("  Puedes descargarla despues pidiendoselo a Claude.")
+            args2.force = args2.keep_zip = args2.github = False
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    odoo_source.cmd_ensure(args2)
+                say("  Fuente lista.")
+                steps.append({"paso": "fuente", "estado": "descargada", "serie": base_serie})
+            except SystemExit as exc:
+                say("  No se pudo descargar la fuente: %s" % exc)
+                steps.append({"paso": "fuente", "estado": "error", "detalle": str(exc)})
+
+    if summary["edition"] == "enterprise":
+        say("\n  Aviso: la instancia es Enterprise y el nightly publico solo trae")
+        say("  Community. Los modulos enterprise se documentan desde la instancia.")
+
+    if a.json:
+        _out({"ok": True, "instancia": slug, "resumen": summary, "db": db,
+              "directorio": str(d), "pasos": steps})
+        return
 
     print("\n  " + "-" * 44)
     print("  Listo. Instancia '%s' dada de alta." % slug)
-    print("  Odoo %s %s, base '%s'." % (summary["serie"], summary["edition"], db))
-    print("  La contrasena quedo en %s, solo legible por ti." % env_path)
-    print("\n  Ahora, en Claude Code, ya puedes pedir cosas como:")
-    print("    /odoo-process manufactura")
-    print("    /odoo-report ventas por cliente este ano")
+    print("  Odoo %s %s, base '%s', usuario '%s'."
+          % (summary["serie"], summary["edition"], db, user))
+    print("  La contrasena quedo en %s, solo legible por ti (permisos 600)." % env_path)
+    print("  Es un fichero de credenciales: no compartas la carpeta instances/, no la")
+    print("  subas a git (ya esta ignorada) y no pegues su contenido en ningun sitio.")
+    print("\n  Vuelve a Claude Code y pide lo que necesites, por ejemplo:")
+    print("    /odoo-process compras")
+    print("    /odoo-report facturas sin pagar")
     print()
+
+
+def cmd_wizard(a):
+    """Same as `setup`, asking everything from scratch. Needs a terminal."""
+    if not sys.stdin.isatty():
+        raise SystemExit(
+            "El asistente necesita una terminal. Escribe tu mismo, en el prompt de "
+            "Claude Code,\n  ! python3 %s setup\ny contesta las preguntas." % __file__)
+    a.url = getattr(a, "url", None)
+    a.db = getattr(a, "db", None)
+    a.user = getattr(a, "user", None)
+    a.instance = getattr(a, "instance", None)
+    a.label = getattr(a, "label", None)
+    return cmd_setup(a)
 
 
 def main(argv=None):
@@ -319,11 +499,24 @@ def main(argv=None):
     sub = p.add_subparsers(dest="cmd", required=True)
 
     c = sub.add_parser("probe", help="version y bases del servidor, sin credenciales")
-    c.add_argument("--host", required=True)
+    c.add_argument("--url", help="dominio, ip o url completa; adivina protocolo y puerto")
+    c.add_argument("--host", help="alternativa a --url, con --protocol y --port explicitos")
     c.add_argument("--port")
     c.add_argument("--protocol", default="http", choices=["http", "https"])
     c.add_argument("--timeout", type=int, default=30)
     c.set_defaults(func=cmd_probe)
+
+    c = sub.add_parser("setup", help="alta completa: descubre lo que puede y pregunta el resto")
+    c.add_argument("--url", help="dominio, ip o url completa de la instancia")
+    c.add_argument("--db", help="base de datos; se pregunta o se deduce si falta")
+    c.add_argument("--user", help="login del usuario de Odoo")
+    c.add_argument("--instance", help="nombre corto de la carpeta; por defecto, el dominio")
+    c.add_argument("--label", help="nombre legible del cliente o entorno")
+    c.add_argument("--no-source", action="store_true",
+                   help="no descargar el codigo fuente de la serie detectada")
+    c.add_argument("--json", action="store_true", help="salida JSON en vez de texto")
+    c.add_argument("--timeout", type=int, default=30)
+    c.set_defaults(func=cmd_setup)
 
     c = sub.add_parser("save", help="crea o actualiza instances/<slug>/instance.json")
     c.add_argument("--instance", required=True)
@@ -344,7 +537,10 @@ def main(argv=None):
     c.add_argument("--instance", required=True)
     c.set_defaults(func=cmd_verify)
 
-    c = sub.add_parser("wizard", help="alta guiada paso a paso (la ejecuta el usuario)")
+    c = sub.add_parser("wizard", help="alias de setup sin datos previos (lo ejecuta el usuario)")
+    c.add_argument("--no-source", action="store_true")
+    c.add_argument("--json", action="store_true")
+    c.add_argument("--timeout", type=int, default=30)
     c.set_defaults(func=cmd_wizard)
 
     c = sub.add_parser("list", help="instancias dadas de alta en este proyecto")

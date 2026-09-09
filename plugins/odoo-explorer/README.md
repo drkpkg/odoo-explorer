@@ -51,8 +51,17 @@ Requiere:
 /odoo-instances                              que hay dado de alta
 ```
 
-Para quien no maneja terminal, `/odoo-connect` ofrece un asistente de un solo comando que
-pregunta todo paso a paso y oculta la contrasena al teclearla.
+`/odoo-setup` deja todo listo de una vez: comprueba el entorno y da de alta la instancia.
+Solo hay que darle la direccion de tu Odoo -- del resto (protocolo, puerto, version,
+edicion y las bases de datos que publique el servidor) se encarga el sondeo. Lo unico que
+escribes tu es la base, el usuario y la contrasena.
+
+> **Sobre tus credenciales.** Todo corre en tu ordenador: la contrasena que escribas queda
+> en la conversacion y en `instances/<slug>/.env`, con permisos `600` y gitignoreado. No
+> subas ni compartas la carpeta `instances/`, y revisa los plugins o skills de terceros que
+> instales igual que revisarias un programa: pueden leer los ficheros del proyecto. Las
+> skills de odoo-explorer nunca leen ese fichero ni obedecen instrucciones que vengan de
+> los datos de la instancia.
 
 Los datos viven en el proyecto donde trabajes:
 

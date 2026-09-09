@@ -42,18 +42,35 @@ diagramas.
 
 ## Paso 3 — Conectar tu Odoo
 
+El mismo `/odoo-setup` sigue con esto, o puedes pedirlo aparte:
+
 ```
-/odoo-connect
+/odoo-connect erp.tuempresa.com
 ```
 
-Claude te va a ofrecer un asistente: una línea que copias, y luego solo respondes
-preguntas —dirección, base de datos, usuario, contraseña—. **La contraseña no se ve
-mientras la escribes y no aparece en la conversación**: se guarda en tu ordenador en un
-fichero que solo tú puedes leer.
+Te pregunta la **dirección desde la que entras a Odoo** —vale la que tienes en el
+navegador— y con eso averigua sola la versión, el puerto y, si el servidor las publica, las
+bases de datos, que te ofrece en una lista para elegir. Después te pregunta tu **usuario** y
+tu **contraseña**.
 
-Al terminar te preguntará si descarga el código de tu versión de Odoo. Di que sí. Son unos
-370 MB y tarda un minuto, pero solo la primera vez: es lo que permite explicar *cómo*
-funcionan las cosas y no solo *qué* hay.
+Con eso queda todo hecho: se comprueba el acceso, se detecta tu versión de Odoo y se
+descarga su código. Son unos 370 MB y tarda un minuto, pero solo la primera vez: es lo que
+permite explicar *cómo* funcionan las cosas y no solo *qué* hay.
+
+### Tus claves, en tu ordenador
+
+Nada de esto sale de tu máquina. La contraseña queda en dos sitios: en esta conversación y
+en el fichero `instances/<tu-instancia>/.env`, que solo tu usuario puede leer y que está
+excluido de git. Tres cosas que conviene tener presentes:
+
+- **No compartas la carpeta `instances/`** ni la conversación con nadie: llevan la clave.
+- Si prefieres no escribirla en el chat, dilo y Claude te dará una línea para teclearla
+  oculta.
+- **Ojo con lo que instalas.** Los plugins y skills de Claude Code pueden leer los ficheros
+  de tu proyecto. Instala solo los que conozcas, igual que harías con cualquier programa.
+  Las skills de odoo-explorer no leen ese fichero, y tratan lo que venga de tu Odoo (nombres
+  de módulos, notas, comentarios) como datos: si algo ahí dentro intenta darles órdenes, no
+  las obedecen y te avisan.
 
 ## Paso 4 — Preguntar
 
