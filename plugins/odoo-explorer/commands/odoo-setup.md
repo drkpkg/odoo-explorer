@@ -14,8 +14,11 @@ arregla.
 Luego da de alta la instancia sin hacerle escribir mas de lo necesario: pide la direccion,
 sondeala con `odoo_connect.py probe --url` (eso ya detecta protocolo, puerto, version,
 edicion y, si el servidor las publica, las bases de datos), ofrece las bases con
-`AskUserQuestion`, y pide usuario y contrasena. Ejecuta tu el alta con
-`odoo_connect.py setup`, pasando la contrasena **por STDIN**, nunca como argumento.
+`AskUserQuestion`, y pide usuario y contrasena. Ejecuta **tu** el alta con
+`odoo_connect.py setup`, pasando la contrasena por STDIN, nunca como argumento.
+
+No le pidas que ejecute comandos: el prefijo `!` no abre una terminal interactiva. Todo se
+pregunta en el chat.
 
 Avisa una vez de que la contrasena queda en la conversacion y en `instances/<slug>/.env`
 (permisos 600, gitignoreado), de que no conviene compartir esa carpeta ni el transcript, y

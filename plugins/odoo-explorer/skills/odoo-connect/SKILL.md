@@ -43,13 +43,13 @@ normal en produccion). Si falla, `tried` dice por que fallo cada intento.
 Con eso ya solo faltan **base de datos** y **usuario**. Si el sondeo trajo la lista de
 bases, ofrecesela con `AskUserQuestion` en vez de hacerla escribir el nombre exacto.
 
-La contrasena se pide en el chat, como un dato mas. Todo esto es local: el transcript y
-las credenciales se quedan en el ordenador de la persona. Avisale **una vez, en una
-frase**, de que la contrasena queda en la conversacion y en un fichero del proyecto (ver
-"Las credenciales" mas abajo).
+La contrasena se pide tambien en el chat, como un dato mas. Todo esto es local: el
+transcript y las credenciales se quedan en el ordenador de la persona. Avisale **una vez,
+en una frase**, de que la contrasena queda en la conversacion y en un fichero del proyecto
+(ver "Las credenciales" mas abajo).
 
-Con los cuatro datos, el alta es un solo comando. La contrasena va **por STDIN**, nunca
-como argumento: en argumento la verian `ps` y el historial del shell.
+Con los cuatro datos, el alta es un solo comando, y lo ejecutas **tu**. La contrasena va
+**por STDIN**, nunca como argumento: en argumento la verian `ps` y el historial del shell.
 
 ```bash
 printf '%s' 'LA_CLAVE' | python3 "$ODOO_EX/scripts/odoo_connect.py" setup \
@@ -60,16 +60,9 @@ Hace todo el resto: guarda `instances/acme/instance.json`, deja la contrasena en
 con permisos `600`, autentica, detecta serie y edicion, y descarga el codigo fuente de esa
 serie (~370 MB la primera vez). Avisa de la descarga antes, o pasa `--no-source`.
 
-Si la persona prefiere no dictar la contrasena, pasale la linea para que la escriba ella,
-oculta, con el `!` de delante:
-
-```
-! read -rsp 'Contrasena de Odoo: ' P && printf '%s' "$P" | python3 "$ODOO_EX/scripts/odoo_connect.py" setup --url erp.cliente.com --db acme_prod --user consultor --instance acme; unset P
-```
-
-Y si te falta algun dato o prefiere contestar preguntas, la version que pregunta todo
-(direccion incluida) es `! python3 "$ODOO_EX/scripts/odoo_connect.py" setup`. El alias
-`wizard` hace lo mismo.
+No le pases comandos a la persona para que los ejecute ella: el prefijo `!` de Claude Code
+no abre una terminal de verdad, y ahi no funciona nada que pida teclear algo (`read -rsp`,
+asistentes interactivos). Por eso los scripts no preguntan nada: preguntas tu en el chat.
 
 Cuando termine, confirma con `odoo_connect.py list` y salta al paso 6 (fuente) y al 7
 (perfilado).
@@ -110,14 +103,8 @@ Crea `instances/acme/instance.json` y un `.gitignore` que protege las credencial
 printf '%s' 'LA_CLAVE' | python3 "$ODOO_EX/scripts/odoo_connect.py" set-password --instance acme
 ```
 
-O que la escriba la persona, oculta, con el `!` de delante:
-
-```
-! read -rsp 'Password Odoo: ' P && printf '%s' "$P" | python3 "$ODOO_EX/scripts/odoo_connect.py" set-password --instance acme; unset P
-```
-
-Queda en `instances/acme/.env` con permisos `600`. Alternativa valida: que exporte
-`ODOO_PASSWORD` en su shell antes de abrir la sesion.
+Queda en `instances/acme/.env` con permisos `600`. Alternativa valida: que la persona
+exporte `ODOO_PASSWORD` en su shell antes de abrir la sesion.
 
 ### 5. Verifica y detecta la version
 

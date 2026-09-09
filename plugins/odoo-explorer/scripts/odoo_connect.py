@@ -1,35 +1,32 @@
 """Register and verify an Odoo instance (read-only).
 
-The short path (one command, everything else is discovered or asked):
+Everything is driven by flags: there is no interactive assistant, because the
+place this runs from (Claude Code's `!` prefix, a hook, a script) has no real
+terminal. Claude asks the person for the data and calls this.
 
-    python3 odoo_connect.py setup --url https://erp.cliente.com
-    -> asks database, user and password (hidden), verifies the access, detects
-       the series and the edition, and downloads the source of that series.
-
-Claude can drive the same command without a terminal, piping the password so it
-never reaches argv (where ps and the shell history would pick it up):
+The short path, one command:
 
     printf '%s' 'la-clave' | python3 odoo_connect.py setup \
-        --url https://erp.cliente.com --db produccion --user consultor
+        --url erp.cliente.com --db produccion --user consultor
 
-Or, when the person prefers to type it hidden instead of dictating it:
+    -> discovers protocol, port, version and edition, saves the instance,
+       stores the password with mode 600, verifies the access and downloads
+       the source of the detected series.
 
-    read -rsp 'Password Odoo: ' P && printf '%s' "$P" | \
-        python3 odoo_connect.py setup --url https://erp.cliente.com \
-            --db produccion --user consultor; unset P
+The password comes in through STDIN (or ODOO_PASSWORD), never through argv,
+where `ps` and the shell history would pick it up.
 
 The long path, step by step, when something needs to be done by hand:
 
   1) probe --url erp.cliente.com   -> version, edition and, when the server allows
                                       it, the list of databases. No credentials.
   2) save --instance cliente ...   -> writes instances/cliente/instance.json.
-  3) set-password --instance cliente (password through STDIN, never argv).
+  3) set-password --instance cliente (password through STDIN).
   4) verify --instance cliente     -> authenticates and stores series and edition.
 """
 import argparse
 import contextlib
 import datetime
-import getpass
 import io
 import re
 import json
@@ -119,9 +116,8 @@ def cmd_save(a):
         "written": str(conf_path),
         "instance": conf,
         "missing": missing,
-        "next": "El usuario debe guardar la contrasena: read -rsp 'Password: ' P && "
-                "printf '%%s' \"$P\" | python3 odoo_connect.py set-password --instance %s; unset P"
-                % a.instance,
+        "next": "Falta guardar la contrasena: printf '%%s' 'la-clave' | "
+                "python3 odoo_connect.py set-password --instance %s" % a.instance,
     })
 
 
@@ -132,14 +128,13 @@ def cmd_set_password(a):
     d = instance_dir(a.instance, a.project)
     if not (d / "instance.json").exists():
         raise SystemExit("No existe instances/%s. Ejecuta antes 'save'." % a.instance)
-    if sys.stdin.isatty():
-        raise SystemExit(
-            "La contrasena se pasa por STDIN, no de forma interactiva. Ejecuta:\n"
-            "  read -rsp 'Password Odoo: ' P && printf '%%s' \"$P\" | "
-            "python3 %s set-password --instance %s; unset P" % (__file__, a.instance))
-    password = sys.stdin.read().rstrip("\r\n")
+    password = "" if sys.stdin.isatty() else sys.stdin.read().rstrip("\r\n")
+    password = password or os.environ.get("ODOO_PASSWORD") or ""
     if not password:
-        raise SystemExit("No llego ninguna contrasena por STDIN.")
+        raise SystemExit(
+            "No llego ninguna contrasena. Pasala por STDIN, nunca por argv:\n"
+            "  printf '%%s' 'la-clave' | python3 %s set-password --instance %s"
+            % (__file__, a.instance))
     env_path = d / ".env"
     env_path.write_text("PASSWORD=%s\n" % password, encoding="utf-8")
     env_path.chmod(stat.S_IRUSR | stat.S_IWUSR)  # 0600
@@ -271,57 +266,22 @@ def _slugify(text, fallback="odoo"):
     return re.sub(r"[^a-z0-9-]+", "-", str(text).lower()).strip("-")[:24] or fallback
 
 
-# --- Preguntas sencillas (solo cuando hay terminal) --------------------------
-def _ask(prompt, default=None, required=True):
-    suffix = " [%s]" % default if default else ""
-    while True:
-        val = input("%s%s: " % (prompt, suffix)).strip()
-        if not val and default is not None:
-            return default
-        if val or not required:
-            return val
-        print("  Hace falta un valor.")
-
-
-def _ask_choice(prompt, options, default=None):
-    for i, opt in enumerate(options, 1):
-        print("   %d) %s" % (i, opt))
-    while True:
-        raw = _ask(prompt, default=default)
-        if raw in options:
-            return raw
-        if raw.isdigit() and 1 <= int(raw) <= len(options):
-            return options[int(raw) - 1]
-        print("  Elige un numero de la lista, o escribe el nombre.")
-
-
-def _ask_yes(prompt, default="si"):
-    return _ask(prompt, default=default).strip().lower().startswith(("s", "y"))
-
-
-def _read_password(tty, prompt="  Contrasena (no se muestra al teclear): "):
-    """STDIN when it is piped, ODOO_PASSWORD otherwise, and only then the prompt."""
-    if not tty:
-        password = sys.stdin.read().rstrip("\r\n")
-        if password:
-            return password
-    env = os.environ.get("ODOO_PASSWORD")
-    if env:
-        return env
-    if tty:
-        return getpass.getpass(prompt)
-    return ""
+# --- Alta completa ------------------------------------------------------------
+def _read_password():
+    """STDIN when it is piped, ODOO_PASSWORD otherwise. Never argv."""
+    password = "" if sys.stdin.isatty() else sys.stdin.read().rstrip("\r\n")
+    return password or os.environ.get("ODOO_PASSWORD") or ""
 
 
 def cmd_setup(a):
     """Register an instance end to end: address, database, user, password, source.
 
-    Whatever can be discovered is discovered (protocol, port, version, edition and,
-    when the server publishes them, the databases). Whatever cannot is asked with a
-    plain prompt. Claude can also drive it without a terminal by passing --url,
-    --db and --user and piping the password through STDIN.
+    There are no questions here on purpose: whoever calls this (Claude, a script)
+    already has the answers, and the `!` prefix of Claude Code gives no terminal to
+    ask from. What can be discovered is discovered -- protocol, port, version,
+    edition and, when the server publishes them, the databases -- and what cannot
+    is required as a flag.
     """
-    tty = sys.stdin.isatty()
     steps = []
 
     def say(msg=""):
@@ -332,14 +292,8 @@ def cmd_setup(a):
     say("  " + "-" * 44)
     say("  Nada de lo que hagamos aqui modifica la instancia.\n")
 
-    raw_url = a.url
-    if not raw_url:
-        if not tty:
-            raise SystemExit("Falta --url (por ejemplo: --url https://erp.cliente.com).")
-        raw_url = _ask("  Direccion del servidor (dominio, ip o url completa)")
-
-    say("  Buscando el servidor en %s ..." % raw_url)
-    info = discover(raw_url, timeout=a.timeout)
+    say("  Buscando el servidor en %s ..." % a.url)
+    info = discover(a.url, timeout=a.timeout)
     if not info["ok"]:
         detail = "\n".join("    %s -> %s" % (t["url"], t["error"]) for t in info["tried"])
         raise SystemExit("\n  %s\n%s" % (info["error"], detail))
@@ -355,35 +309,24 @@ def cmd_setup(a):
             db = dbs[0]
             say("  El servidor solo publica una base: %s\n" % db)
         elif dbs:
-            if not tty:
-                raise SystemExit(
-                    "Falta --db. El servidor publica estas bases: %s" % ", ".join(dbs))
-            say("  Bases de datos que publica el servidor:")
-            db = _ask_choice("  Cual quieres consultar", dbs, default="1")
+            raise SystemExit(
+                "Falta --db. Pregunta cual de estas quiere consultar: %s" % ", ".join(dbs))
         else:
-            if not tty:
-                raise SystemExit(
-                    "Falta --db. El servidor no publica la lista de bases "
-                    "(list_db=False): hay que saber el nombre exacto.")
-            say("  El servidor no publica la lista de bases (normal en produccion).")
-            db = _ask("  Nombre exacto de la base de datos")
+            raise SystemExit(
+                "Falta --db. El servidor no publica la lista de bases (list_db=False): "
+                "hay que preguntarle el nombre exacto a la persona.")
     elif dbs and db not in dbs:
         say("  Aviso: %r no esta entre las bases que publica el servidor (%s)."
             % (db, ", ".join(dbs)))
 
-    user = a.user or (_ask("\n  Usuario de Odoo con el que conectarte") if tty else "")
-    if not user:
-        raise SystemExit("Falta --user (el login del usuario de Odoo).")
+    user = a.user
 
-    password = _read_password(tty)
+    password = _read_password()
     if not password:
         raise SystemExit(
-            "Falta la contrasena. Pasala por STDIN (nunca por argv):\n"
-            "  printf '%%s' 'la-clave' | python3 %s setup --url %s --db %s --user %s\n"
-            "O que la teclee la persona, oculta:\n"
-            "  read -rsp 'Password Odoo: ' P && printf '%%s' \"$P\" | "
-            "python3 %s setup --url %s --db %s --user %s; unset P"
-            % (__file__, raw_url, db, user, __file__, raw_url, db, user))
+            "Falta la contrasena. Pasala por STDIN, nunca por argv:\n"
+            "  printf '%%s' 'la-clave' | python3 %s setup --url %s --db %s --user %s"
+            % (__file__, a.url, db, user))
 
     slug = a.instance or _slugify(info["host"])
     label = a.label or info["host"]
@@ -410,7 +353,7 @@ def cmd_setup(a):
     steps.append({"paso": "guardado", "instancia": slug,
                   "config": str(d / "instance.json"), "password": str(env_path)})
 
-    say("\n  Verificando el acceso...")
+    say("  Verificando el acceso...")
     try:
         odoo = OdooRO.from_instance(slug, a.project, connect=True)
     except SystemExit as exc:
@@ -430,31 +373,30 @@ def cmd_setup(a):
 
     serie = summary["serie"]
     base_serie = odoo_source.normalize_serie(serie)[0]
-    cached = odoo_source.source_info(base_serie)
-    if cached:
+    if odoo_source.source_info(base_serie):
         say("  El codigo fuente de Odoo %s ya estaba descargado." % base_serie)
         steps.append({"paso": "fuente", "estado": "ya-estaba", "serie": base_serie})
     elif a.no_source:
+        say("  Falta el codigo fuente de Odoo %s: sin el no se puede explicar como"
+            % base_serie)
+        say("  funcionan los procesos. Descargalo con: odoo_source.py ensure %s"
+            % base_serie)
         steps.append({"paso": "fuente", "estado": "omitida", "serie": base_serie})
     else:
-        say("  Falta el codigo fuente de Odoo %s. Son unos 370 MB y se descarga"
+        say("  Descargando el codigo fuente de Odoo %s (~370 MB, solo la primera"
             % base_serie)
-        say("  una sola vez: sin el no se puede explicar como funcionan los procesos.")
-        if tty and not _ask_yes("  Descargar ahora (si/no)"):
-            say("  Puedes descargarla despues pidiendoselo a Claude.")
-            steps.append({"paso": "fuente", "estado": "rechazada", "serie": base_serie})
-        else:
-            args2 = _Args()
-            args2.serie = serie
-            args2.force = args2.keep_zip = args2.github = False
-            try:
-                with contextlib.redirect_stdout(io.StringIO()):
-                    odoo_source.cmd_ensure(args2)
-                say("  Fuente lista.")
-                steps.append({"paso": "fuente", "estado": "descargada", "serie": base_serie})
-            except SystemExit as exc:
-                say("  No se pudo descargar la fuente: %s" % exc)
-                steps.append({"paso": "fuente", "estado": "error", "detalle": str(exc)})
+        say("  vez para esta version)...")
+        args2 = _Args()
+        args2.serie = serie
+        args2.force = args2.keep_zip = args2.github = False
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                odoo_source.cmd_ensure(args2)
+            say("  Fuente lista.")
+            steps.append({"paso": "fuente", "estado": "descargada", "serie": base_serie})
+        except SystemExit as exc:
+            say("  No se pudo descargar la fuente: %s" % exc)
+            steps.append({"paso": "fuente", "estado": "error", "detalle": str(exc)})
 
     if summary["edition"] == "enterprise":
         say("\n  Aviso: la instancia es Enterprise y el nightly publico solo trae")
@@ -472,24 +414,7 @@ def cmd_setup(a):
     print("  La contrasena quedo en %s, solo legible por ti (permisos 600)." % env_path)
     print("  Es un fichero de credenciales: no compartas la carpeta instances/, no la")
     print("  subas a git (ya esta ignorada) y no pegues su contenido en ningun sitio.")
-    print("\n  Vuelve a Claude Code y pide lo que necesites, por ejemplo:")
-    print("    /odoo-process compras")
-    print("    /odoo-report facturas sin pagar")
     print()
-
-
-def cmd_wizard(a):
-    """Same as `setup`, asking everything from scratch. Needs a terminal."""
-    if not sys.stdin.isatty():
-        raise SystemExit(
-            "El asistente necesita una terminal. Escribe tu mismo, en el prompt de "
-            "Claude Code,\n  ! python3 %s setup\ny contesta las preguntas." % __file__)
-    a.url = getattr(a, "url", None)
-    a.db = getattr(a, "db", None)
-    a.user = getattr(a, "user", None)
-    a.instance = getattr(a, "instance", None)
-    a.label = getattr(a, "label", None)
-    return cmd_setup(a)
 
 
 def main(argv=None):
@@ -506,10 +431,11 @@ def main(argv=None):
     c.add_argument("--timeout", type=int, default=30)
     c.set_defaults(func=cmd_probe)
 
-    c = sub.add_parser("setup", help="alta completa: descubre lo que puede y pregunta el resto")
-    c.add_argument("--url", help="dominio, ip o url completa de la instancia")
-    c.add_argument("--db", help="base de datos; se pregunta o se deduce si falta")
-    c.add_argument("--user", help="login del usuario de Odoo")
+    c = sub.add_parser("setup", help="alta completa en un comando: sondeo, guardado, verificacion y fuente")
+    c.add_argument("--url", required=True, help="dominio, ip o url completa de la instancia")
+    c.add_argument("--db", help="base de datos; solo se puede omitir si el servidor "
+                                "publica una unica base")
+    c.add_argument("--user", required=True, help="login del usuario de Odoo")
     c.add_argument("--instance", help="nombre corto de la carpeta; por defecto, el dominio")
     c.add_argument("--label", help="nombre legible del cliente o entorno")
     c.add_argument("--no-source", action="store_true",
@@ -536,12 +462,6 @@ def main(argv=None):
     c = sub.add_parser("verify", help="autentica y detecta serie y edicion")
     c.add_argument("--instance", required=True)
     c.set_defaults(func=cmd_verify)
-
-    c = sub.add_parser("wizard", help="alias de setup sin datos previos (lo ejecuta el usuario)")
-    c.add_argument("--no-source", action="store_true")
-    c.add_argument("--json", action="store_true")
-    c.add_argument("--timeout", type=int, default=30)
-    c.set_defaults(func=cmd_wizard)
 
     c = sub.add_parser("list", help="instancias dadas de alta en este proyecto")
     c.set_defaults(func=cmd_list)

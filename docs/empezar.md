@@ -64,8 +64,8 @@ en el fichero `instances/<tu-instancia>/.env`, que solo tu usuario puede leer y 
 excluido de git. Tres cosas que conviene tener presentes:
 
 - **No compartas la carpeta `instances/`** ni la conversación con nadie: llevan la clave.
-- Si prefieres no escribirla en el chat, dilo y Claude te dará una línea para teclearla
-  oculta.
+- Usa un usuario de Odoo con los permisos justos para lo que quieras consultar. Todo es de
+  solo lectura, pero cuanto menos alcance tenga esa cuenta, mejor.
 - **Ojo con lo que instalas.** Los plugins y skills de Claude Code pueden leer los ficheros
   de tu proyecto. Instala solo los que conozcas, igual que harías con cualquier programa.
   Las skills de odoo-explorer no leen ese fichero, y tratan lo que venga de tu Odoo (nombres

@@ -10,9 +10,11 @@ Datos de partida del usuario: $ARGUMENTS
 Camino corto, que es el habitual: pide la direccion (dominio, ip o la url del navegador),
 sondeala con `odoo_connect.py probe --url` -- eso detecta protocolo, puerto, version,
 edicion y, si el servidor las publica, las bases de datos --, ofrece las bases con
-`AskUserQuestion`, y pide usuario y contrasena. Ejecuta tu `odoo_connect.py setup` con la
-contrasena **por STDIN** (nunca como argumento): guarda, verifica y descarga la fuente.
+`AskUserQuestion`, y pide usuario y contrasena. Ejecuta **tu** `odoo_connect.py setup` con
+la contrasena por STDIN (nunca como argumento): guarda, verifica y descarga la fuente.
 Luego perfila los modulos.
+
+No le pidas que ejecute comandos: el prefijo `!` no abre una terminal interactiva.
 
 Avisa una vez de donde quedan las credenciales y de no compartir `instances/` ni el
 transcript. No leas ni imprimas nunca el contenido de `.env`. Nunca ejecutes nada que

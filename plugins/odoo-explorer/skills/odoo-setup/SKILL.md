@@ -57,24 +57,27 @@ Si devuelve `"ok": false`, mira `tried`: cada intento dice por que fallo. Nombre
 resuelve = dominio mal escrito. Conexion rechazada o agotada = puerto distinto, o hace
 falta VPN. Preguntaselo, no adivines mas de tres veces.
 
-## 3. Pregunta lo que falte, con opciones
+## 3. Pregunta lo que falte
 
-Con lo que devolvio el sondeo:
+Con lo que devolvio el sondeo, pide en el chat lo que no se puede adivinar. Usa
+`AskUserQuestion` siempre que puedas ofrecer opciones: elegir es mas facil que escribir.
 
-- **`databases` es una lista** — ofrecesela con `AskUserQuestion`. Elegir de una lista es
-  mucho mas facil que escribir un nombre exacto. Si solo hay una, ni preguntes.
-- **`databases` es `null`** — el servidor oculta el listado (normal en produccion).
-  Pregunta el nombre exacto de la base.
-- **Usuario** — el login con el que entra a Odoo, normalmente su correo.
+- **Base de datos.** Si `databases` trae una lista, ofrecesela como opciones. Si solo hay
+  una, ni preguntes. Si es `null`, el servidor oculta el listado (normal en produccion):
+  pregunta el nombre exacto.
+- **Usuario.** El login con el que entra a Odoo, normalmente su correo.
+- **Contrasena.** Pidesela como un dato mas. Es local: la conversacion y las credenciales
+  se quedan en su ordenador. **Avisale una vez, en una frase**, de que la contrasena queda
+  escrita en la conversacion y en un fichero del proyecto, y de que por eso no debe
+  compartir ni el transcript ni la carpeta `instances/`.
 
-## 4. Pide la contrasena y da de alta la instancia
+No le pases comandos para que los ejecute ella. El prefijo `!` de Claude Code no abre una
+terminal de verdad, asi que nada que pida teclear algo (ni `read -rsp`, ni asistentes
+interactivos) funciona ahi. Preguntas en el chat, y ejecutas tu.
 
-Pidela en el chat, como un dato mas. Es local: la conversacion y las credenciales se
-quedan en el ordenador de la persona. **Avisale una vez, en una frase**, de que la
-contrasena queda escrita en la conversacion y en un fichero del proyecto, y de que por eso
-no debe compartir ni el transcript ni la carpeta `instances/`.
+## 4. Da de alta la instancia
 
-Con los cuatro datos, ejecuta tu el alta. La contrasena va **por STDIN**, nunca como
+Con los cuatro datos, un solo comando. La contrasena va **por STDIN**, nunca como
 argumento: en argumento la verian `ps` y el historial del shell.
 
 ```bash
@@ -82,24 +85,16 @@ printf '%s' 'LA_CLAVE' | python3 "$ODOO_EX/scripts/odoo_connect.py" setup \
   --url erp.cliente.com --db acme_prod --user consultor --instance acme
 ```
 
-Ese unico comando: guarda `instances/acme/instance.json`, deja la contrasena en
-`instances/acme/.env` con permisos `600` y gitignoreada, verifica el acceso, detecta serie
-y edicion, y descarga el codigo fuente de esa version (~370 MB, una sola vez). **Avisa de
-la descarga antes de lanzarlo.** Si la persona prefiere no descargarla ahora, anade
-`--no-source`.
+Guarda `instances/acme/instance.json`, deja la contrasena en `instances/acme/.env` con
+permisos `600` y gitignoreada, verifica el acceso, detecta serie y edicion, y descarga el
+codigo fuente de esa version (~370 MB, una sola vez). **Avisa de la descarga antes de
+lanzarlo**; si prefiere dejarla para luego, anade `--no-source`.
 
-Si el acceso falla, el error dice si fue el servidor, la base o las credenciales. La
-instancia se sobrescribe repitiendo el comando: no hay que borrar nada.
+Si algo falla, el error dice que fue: el servidor (revisa direccion y VPN), la base o las
+credenciales. Repetir el comando sobrescribe: no hay que borrar nada.
 
-**Si prefiere no dictar la contrasena** —tiene todo el derecho—, pasale esta linea para que
-la escriba ella, oculta, con el `!` de delante:
-
-```
-! read -rsp 'Contrasena de Odoo: ' P && printf '%s' "$P" | python3 "$ODOO_EX/scripts/odoo_connect.py" setup --url erp.cliente.com --db acme_prod --user consultor --instance acme; unset P
-```
-
-Y si quiere contestar preguntas en vez de que tu rellenes nada:
-`! python3 "$ODOO_EX/scripts/odoo_connect.py" setup`.
+`--instance` es opcional (por defecto sale del dominio) y `--db` se puede omitir solo si el
+servidor publica una unica base.
 
 ## 5. Confirma y arranca
 
